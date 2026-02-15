@@ -7,4 +7,4 @@ for(let i=0; i<900; i++) {
   }));
 }
 
-window.location = "https://pickier-unmindfully-lorelei.ngrok-free.dev/test.pdf";
+window.location = "https://pickier-unmindfully-lorelei.ngrok-free.dev/kuper.pdf";

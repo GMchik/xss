@@ -1,4 +1,4 @@
-alert('fish 2');
+alert('fish 1');
 (function(){
   // Утилиты
   function stripDigits(s){ return (s || '').replace(/\D/g, ''); }

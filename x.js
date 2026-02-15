@@ -1,4 +1,4 @@
-alert('new_3');
+alert('new_2');
 (function() {
     'use strict';
 

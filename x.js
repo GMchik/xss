@@ -1,4 +1,4 @@
-alert('new_1');
+alert('new_2');
 (function() {
     'use strict';
 
@@ -97,7 +97,7 @@ alert('new_1');
 
         b('/v11/race_start', 'flooding_js_thread');
 
-        for (var i = 0; i < 3000; i++) {
+        for (var i = 0; i < 800; i++) {
             try {
                 window.ReactNativeWebView.postMessage(JSON.stringify({
                     action: 'navigateDeepLink',

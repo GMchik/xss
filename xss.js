@@ -1,4 +1,3 @@
-alert('test1');
 for(let i=0; i<900; i++) {
   window.ReactNativeWebView.postMessage(JSON.stringify({
   action: 'navigateDeepLink',

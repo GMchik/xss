@@ -3,95 +3,126 @@
 <h1> Test Avito </h1>
 <script>
 alert(document.cookie);
-alert('test1');
-(function enumerateAppInterface() {
-  const name = "appInterface";
-  if (!(name in window)) {
-    return { error: `${name} not found on window` };
+alert('test2');
+(function probeAppInterface() {
+  const NAME = "appInterface";
+  const MAX_TRIES = 20;
+  const INTERVAL_MS = 200;
+  let tries = 0;
+
+  function prettyPrint(obj) {
+    try { return JSON.stringify(obj, null, 2); }
+    catch(e) { return String(obj); }
   }
 
-  const obj = window[name];
-  const seen = new Set();
-  const props = [];
-
-  function safePush(p) {
-    if (!seen.has(p)) { seen.add(p); props.push(p); }
-  }
-
-  // 1) own property names
-  try { Object.getOwnPropertyNames(obj).forEach(safePush); } catch(e){ /*ignore*/ }
-  // 2) own symbol keys
-  try { Object.getOwnPropertySymbols(obj).forEach(s => safePush(String(s))); } catch(e){ }
-  // 3) Reflect.ownKeys
-  try { Reflect.ownKeys(obj).forEach(k => safePush(String(k))); } catch(e){ }
-  // 4) for..in (enumerable)
-  try { for (let k in obj) safePush(k); } catch(e){ }
-  // 5) iterate prototype chain properties (some host objects put methods on prototype)
-  try {
-    let p = Object.getPrototypeOf(obj);
-    let depth = 0;
-    while (p && p !== Object.prototype && depth++ < 10) {
-      try { Object.getOwnPropertyNames(p).forEach(n => safePush(n + " (proto)")); } catch(e){}
-      p = Object.getPrototypeOf(p);
-    }
-  } catch(e){}
-
-  const report = {};
-  props.forEach(k => {
-    const entry = { name: k, accessible: true, type: null, isFunction: false, nativeLike: false, readError: null };
+  function report(obj) {
     try {
-      let key = k;
-      let isProto = false;
-      if (k.endsWith(" (proto)")) { key = k.replace(/ \(proto\)$/, ""); isProto = true; }
-      // access via try/catch
-      let val;
+      console.log("appInterface probe result:", obj);
+      let pre = document.getElementById("__jsiface_report");
+      if (!pre) {
+        pre = document.createElement("pre");
+        pre.id = "__jsiface_report";
+        pre.style.cssText = "white-space: pre-wrap; background:#f6f8fa;border:1px solid #ddd;padding:8px;";
+        document.body.appendChild(pre);
+      }
+      pre.textContent = prettyPrint(obj);
+    } catch(e) {
+      console.error("report error", e);
+    }
+  }
+
+  function enumerate(obj) {
+    const seen = new Set();
+    const keys = [];
+
+    function add(k){ if (!seen.has(k)) { seen.add(k); keys.push(k); } }
+
+    try { Object.getOwnPropertyNames(obj).forEach(add); } catch(e){}
+    try { Reflect.ownKeys(obj).forEach(k => add(String(k))); } catch(e){}
+    try { Object.getOwnPropertySymbols(obj).forEach(s => add(String(s))); } catch(e){}
+    try { for (let k in obj) add(k); } catch(e){}
+
+    try {
+      let p = Object.getPrototypeOf(obj);
+      let depth = 0;
+      while (p && p !== Object.prototype && depth++ < 10) {
+        try { Object.getOwnPropertyNames(p).forEach(n => add(n + " (proto)")); } catch(e){}
+        p = Object.getPrototypeOf(p);
+      }
+    } catch(e){}
+
+    const report = {interfaceName: NAME, found: keys.length, entries: {}};
+    keys.forEach(k => {
+      const entry = {name: k, accessible: true, type: null, isFunction: false, nativeLike: false, readError: null, signature: null};
       try {
-        val = obj[key];
+        let key = k;
+        let isProto = false;
+        if (k.endsWith(" (proto)")) { key = k.replace(/ \(proto\)$/, ""); isProto = true; }
+        let val;
+        try { val = obj[key]; } catch(e) { entry.accessible = false; entry.readError = String(e); report.entries[k] = entry; return; }
+        entry.type = typeof val;
+        if (entry.type === "function") {
+          entry.isFunction = true;
+          try {
+            const s = Function.prototype.toString.call(val);
+            entry.nativeLike = /\[native code\]/.test(s);
+            entry.signature = s.length > 300 ? s.slice(0,300) + "…" : s;
+          } catch(e) {
+            entry.signature = "unreadable toString(): " + String(e);
+          }
+        } else {
+          try {
+            if (val === null) entry.valueSample = null;
+            else if (typeof val === "object") entry.valueSample = Object.prototype.toString.call(val);
+            else entry.valueSample = String(val).slice(0,200);
+          } catch(e) {
+            entry.valueSample = "unreadable: " + String(e);
+          }
+        }
       } catch(e) {
-        entry.accessible = false;
         entry.readError = String(e);
-        report[k] = entry;
+      }
+      report.entries[k] = entry;
+    });
+
+    report.suspicious = Object.keys(report.entries).filter(n => {
+      const ln = n.toLowerCase();
+      return ln.includes("exec") || ln.includes("run") || ln.includes("open") || ln.includes("file")
+          || ln.includes("cmd") || ln.includes("send") || ln.includes("sms") || ln.includes("call")
+          || ln.includes("download") || ln.includes("delete") || ln.includes("copy") || ln.includes("save");
+    });
+
+    return report;
+  }
+
+  function tryOnce() {
+    tries++;
+    const present = (typeof window !== "undefined" && NAME in window);
+    if (!present) {
+      if (tries >= MAX_TRIES) {
+        report({interfaceName: NAME, found: false, note: "not present after retries"});
         return;
       }
-      entry.type = typeof val;
-      if (entry.type === "function") {
-        entry.isFunction = true;
-        try {
-          const s = Function.prototype.toString.call(val);
-          entry.nativeLike = /\[native code\]/.test(s) || /function\s*\(\)\s*\{\s*\[native code\]\s*\}/.test(s);
-          entry.signature = s.length > 200 ? s.slice(0,200) + "…" : s;
-        } catch(e) {
-          // some host methods throw when toString'd
-          entry.signature = String(val);
-        }
-      } else {
-        // for non-functions, small sample of value (avoid huge blobs)
-        try {
-          if (val === null) entry.valueSample = null;
-          else if (typeof val === "object") {
-            entry.valueSample = Object.prototype.toString.call(val);
-          } else {
-            entry.valueSample = String(val).slice(0,200);
-          }
-        } catch(e) {
-          entry.valueSample = "unreadable: " + String(e);
-        }
-      }
-    } catch(e) {
-      entry.readError = String(e);
+      // retry later
+      setTimeout(tryOnce, INTERVAL_MS);
+      return;
     }
-    report[k] = entry;
-  });
 
-  // Extra: list names that might be sensitive (heuristic)
-  const suspicious = Object.keys(report).filter(n => {
-    const ln = n.toLowerCase();
-    return ln.includes("exec") || ln.includes("run") || ln.includes("open") || ln.includes("file")
-        || ln.includes("cmd") || ln.includes("send") || ln.includes("sms") || ln.includes("call")
-        || ln.includes("download") || ln.includes("delete") || ln.includes("copy") || ln.includes("save");
-  });
-
-  return { interfaceName: name, foundProps: props.length, propsReport: report, suspiciousNames: suspicious };
+    try {
+      const obj = window[NAME];
+      const out = { interfaceName: NAME, typeof: typeof obj, isNull: obj === null };
+      try {
+        out.probe = enumerate(obj);
+      } catch(e) {
+        out.probeError = String(e);
+      }
+      report(out);
+    } catch(e) {
+      report({ error: String(e) });
+    }
+  }
+  
+  setTimeout(tryOnce, 50);
 })();
 </script>
 </body>

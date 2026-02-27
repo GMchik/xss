@@ -1,4 +1,4 @@
-alert('new_7');
+alert('Test PoC');
 
 (function() {
     window.stop();

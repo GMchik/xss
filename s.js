@@ -6,11 +6,7 @@ ozonApp.showNotification(JSON.stringify({
 }));
 
 var f = document.createElement('iframe');
-f.src = 'https://www.ozon.ru/my/main';
 f.style = 'width:100%;height:100%';
-document.body.appendChild(f);
-
-var f = document.createElement('iframe');
 f.src = 'https://www.ozon.ru/my/main';
 document.body.appendChild(f);
 f.onload = function() {

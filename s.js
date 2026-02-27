@@ -6,4 +6,3 @@ alert('new_5');
         document.title = 'Ozon XSS';
     }, 0);
 })();
-void(0);

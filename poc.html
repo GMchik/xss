@@ -1,9 +1,8 @@
 <html>
-<body>
-<h1>Test 1</h1>
-<a id="dl" href="content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/databases/alfa_db" download="alfa_db.sqlite">Download databases</a>                                                                                                                         
-<script>
-document.getElementById('dl').click();                                                                                                                  
-</script>
+<body>    
+<script>                                                                                                       
+var dbUri = "content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/databases/alfa_db";
+window.location = "intent:#Intent;action=android.intent.action.VIEW;data=" + encodeURIComponent(dbUri) + ";type=application/octet-stream;launchFlags=0x1;end";                                                                                                   
+</script>                                                                                                                                               
 </body>
 </html>

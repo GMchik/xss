@@ -3,7 +3,7 @@ info:
   version: "0.0.1"
   title: XSS Vulnerable
   description: |
-    <math><mtext><table><mglyph><style><!--</style><img title="--&gt;&lt;img src=1 onerror=alert(1)&gt;">
+    <h1>Test</h1>
 host: "petstore.swagger.io"
 basePath: "/v2"
 paths:

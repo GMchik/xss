@@ -1,0 +1,9 @@
+{
+  "url": "https://gmchik.github.io/xss/test.yaml",
+  "urls": [
+    {
+      "url": "https://gmchik.github.io/xss/test.yaml",
+      "name": "XSS Payload"
+    }
+  ]
+}

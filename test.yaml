@@ -2,7 +2,8 @@ swagger: '2.0'
 info:
   version: "0.0.1"
   title: XSS Vulnerable
-  description: '[Test link](javascript:alert(document.domain))'
+  description: |
+    <noscript><p title="</noscript><img src=x onerror=alert(document.domain)>">
 host: "petstore.swagger.io"
 basePath: "/v2"
 paths:

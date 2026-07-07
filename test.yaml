@@ -3,7 +3,7 @@ info:
   version: "0.0.1"
   title: XSS Vulnerable
   description: |
-    <form><math><mtext></form><form><mglyph><svg><mtext><path id="</mtext><img onerror=alert(1) src>">
+    <math><mtext><option><FAKEFAKE><option></option><mglyph><svg><mtext><textarea><a title="</textarea><img src='#' onerror='alert(window.origin)'>">
 host: "petstore.swagger.io"
 basePath: "/v2"
 paths:

@@ -1,9 +1,9 @@
 swagger: '2.0'
 info:
   version: "0.0.1"
-  title: XSS Vulnerable 2
+  title: XSS Vulnerable 1
   description: |
-    <math><mtext><option><FAKEFAKE><option></option><mglyph><svg><mtext><textarea><a title="</textarea><img src='#' onerror='alert(1)'>">
+    </p><math><mtext><option><FAKEFAKE><option></option><mglyph><svg><mtext><textarea><a title="</textarea><img src='#' onerror='alert(1)'>"><p>
 host: "petstore.swagger.io"
 basePath: "/v2"
 paths:
